@@ -1,0 +1,11 @@
+environment: aws
+aws_region: us-east-1
+s3_bucket: courtvision-ml
+s3_prefixes:
+  raw: raw/
+  processed: processed/
+  features: features/
+  models: models/
+  reports: reports/
+mlflow_tracking_uri: ""
+database_url: ""

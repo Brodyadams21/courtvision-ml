@@ -18,3 +18,5 @@ mlflow
 pytest
 requests
 nba-api
+ruff
+pyyaml

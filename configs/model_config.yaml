@@ -1,0 +1,12 @@
+target: shot_made
+time_split_column: game_date
+models:
+  baseline:
+    type: logistic_regression
+  tree_candidate:
+    type: xgboost
+metrics:
+  - auc
+  - log_loss
+  - brier_score
+  - accuracy
