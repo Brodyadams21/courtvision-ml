@@ -216,3 +216,54 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ============================================================
+# CourtVision ML project-specific ignores
+# ============================================================
+
+# Raw and processed data
+data/raw/
+data/processed/
+data/interim/
+data/external/
+
+# Large data files
+*.csv
+*.parquet
+*.feather
+*.jsonl
+
+# Keep small documentation/metadata files if needed
+!data/README.md
+!data/metadata/
+!data/metadata/data_collection_metadata.json
+
+# Model artifacts
+models/
+artifacts/
+mlruns/
+*.pkl
+*.joblib
+*.pt
+*.pth
+*.onnx
+
+# Local databases
+courtvision.db
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# Secrets and credentials
+.env.*
+!.env.example
+secrets/
+credentials/
+aws_credentials/
+*.pem
+*.key
+
+# Local logs
+logs/
+*.log
