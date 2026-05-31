@@ -1,0 +1,46 @@
+[
+  {
+    "dataset": "shot_chart",
+    "source": "https://stats.nba.com/stats/shotchartdetail",
+    "season": "2024-25",
+    "downloaded_at": "2026-05-31T20:52:41.238702+00:00",
+    "row_count": 219527,
+    "output_paths": {
+      "csv": "data/raw/shots/2024-25_shot_chart_raw.csv",
+      "parquet": "data/raw/shots/2024-25_shot_chart_raw.parquet"
+    }
+  },
+  {
+    "dataset": "player_game_logs",
+    "source": "https://stats.nba.com/stats/playergamelogs",
+    "season": "2024-25",
+    "downloaded_at": "2026-05-31T20:52:42.994874+00:00",
+    "row_count": 26306,
+    "output_paths": {
+      "csv": "data/raw/player_game_logs/2024-25_player_game_logs_raw.csv",
+      "parquet": "data/raw/player_game_logs/2024-25_player_game_logs_raw.parquet"
+    }
+  },
+  {
+    "dataset": "team_game_logs",
+    "source": "https://stats.nba.com/stats/teamgamelogs",
+    "season": "2024-25",
+    "downloaded_at": "2026-05-31T20:52:43.214218+00:00",
+    "row_count": 2460,
+    "output_paths": {
+      "csv": "data/raw/team_game_logs/2024-25_team_game_logs_raw.csv",
+      "parquet": "data/raw/team_game_logs/2024-25_team_game_logs_raw.parquet"
+    }
+  },
+  {
+    "dataset": "play_by_play",
+    "source": "https://stats.nba.com/stats/playbyplayv3",
+    "season": "2024-25",
+    "downloaded_at": "2026-05-31T21:16:32.598755+00:00",
+    "row_count": 606536,
+    "output_paths": {
+      "csv": "data/raw/play_by_play/2024-25_play_by_play_raw.csv",
+      "parquet": "data/raw/play_by_play/2024-25_play_by_play_raw.parquet"
+    }
+  }
+]
