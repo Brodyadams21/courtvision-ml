@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from nba_api.stats.endpoints import playergamelogs, shotchartdetail, teamgamelogs
+from nba_api.stats.endpoints import playbyplayv3, playergamelogs, shotchartdetail, teamgamelogs
 from nba_api.stats.static import teams
 
 logger = logging.getLogger(__name__)
@@ -28,15 +28,23 @@ REQUEST_TIMEOUT_SECONDS = 120
 SHOT_CHART_DATASET = "shot_chart"
 PLAYER_GAME_LOGS_DATASET = "player_game_logs"
 TEAM_GAME_LOGS_DATASET = "team_game_logs"
+PLAY_BY_PLAY_DATASET = "play_by_play"
 
 SHOT_CHART_SOURCE = "https://stats.nba.com/stats/shotchartdetail"
 PLAYER_GAME_LOGS_SOURCE = "https://stats.nba.com/stats/playergamelogs"
 TEAM_GAME_LOGS_SOURCE = "https://stats.nba.com/stats/teamgamelogs"
+PLAY_BY_PLAY_SOURCE = "https://stats.nba.com/stats/playbyplayv3"
 
 SHOTS_SUBDIR = Path("raw") / "shots"
 PLAYER_GAME_LOGS_SUBDIR = Path("raw") / "player_game_logs"
 TEAM_GAME_LOGS_SUBDIR = Path("raw") / "team_game_logs"
-ALL_DATASETS = {SHOT_CHART_DATASET, PLAYER_GAME_LOGS_DATASET, TEAM_GAME_LOGS_DATASET}
+PLAY_BY_PLAY_SUBDIR = Path("raw") / "play_by_play"
+ALL_DATASETS = {
+    SHOT_CHART_DATASET,
+    PLAYER_GAME_LOGS_DATASET,
+    TEAM_GAME_LOGS_DATASET,
+    PLAY_BY_PLAY_DATASET,
+}
 
 
 def shot_chart_output_stem(season: str) -> str:
@@ -49,6 +57,10 @@ def player_game_logs_output_stem(season: str) -> str:
 
 def team_game_logs_output_stem(season: str) -> str:
     return f"{season}_team_game_logs_raw"
+
+
+def play_by_play_output_stem(season: str) -> str:
+    return f"{season}_play_by_play_raw"
 
 
 def dataset_output_paths(data_dir: Path, season: str, subdir: Path, stem: str) -> dict[str, Path]:
@@ -86,6 +98,15 @@ def team_game_logs_output_paths(data_dir: Path, season: str) -> dict[str, Path]:
     )
 
 
+def play_by_play_output_paths(data_dir: Path, season: str) -> dict[str, Path]:
+    return dataset_output_paths(
+        data_dir,
+        season,
+        PLAY_BY_PLAY_SUBDIR,
+        play_by_play_output_stem(season),
+    )
+
+
 def metadata_path(data_dir: Path) -> Path:
     return data_dir / METADATA_SUBDIR / METADATA_FILENAME
 
@@ -102,7 +123,13 @@ def infer_dataset(entry: dict[str, Any]) -> str:
         return PLAYER_GAME_LOGS_DATASET
     if "teamgamelogs" in source:
         return TEAM_GAME_LOGS_DATASET
+    if "playbyplay" in source:
+        return PLAY_BY_PLAY_DATASET
     return "unknown"
+
+
+def normalize_game_id(game_id: str | int) -> str:
+    return str(game_id).zfill(10)
 
 
 def metadata_entry_key(entry: dict[str, Any]) -> tuple[str, str]:
@@ -207,6 +234,40 @@ def fetch_season_team_game_logs(
     return fetch_with_retries(fetch, label=f"team game logs for {season}")
 
 
+def fetch_season_game_ids(
+    season: str,
+    *,
+    timeout: int = REQUEST_TIMEOUT_SECONDS,
+) -> list[str]:
+    """Return unique regular-season game IDs for a season."""
+    team_logs = fetch_season_team_game_logs(season, timeout=timeout)
+    if team_logs.empty or "GAME_ID" not in team_logs.columns:
+        return []
+
+    game_ids = {normalize_game_id(game_id) for game_id in team_logs["GAME_ID"].dropna().unique()}
+    return sorted(game_ids)
+
+
+def fetch_game_play_by_play(
+    game_id: str,
+    *,
+    timeout: int = REQUEST_TIMEOUT_SECONDS,
+) -> pd.DataFrame:
+    """Fetch play-by-play rows for one game."""
+
+    def fetch() -> pd.DataFrame:
+        response = playbyplayv3.PlayByPlayV3(
+            game_id=normalize_game_id(game_id),
+            timeout=timeout,
+        )
+        frames = response.get_data_frames()
+        if not frames:
+            return pd.DataFrame()
+        return frames[0]
+
+    return fetch_with_retries(fetch, label=f"play-by-play for game {game_id}")
+
+
 def collect_season_shot_charts(season: str = DEFAULT_SEASON) -> pd.DataFrame:
     """Download shot chart detail for every NBA team in a season."""
     nba_teams = teams.get_teams()
@@ -273,6 +334,42 @@ def collect_season_team_game_logs(season: str = DEFAULT_SEASON) -> pd.DataFrame:
 
     logger.info("Collected %s team game log rows for season %s", len(game_logs), season)
     return game_logs
+
+
+def collect_season_play_by_play(season: str = DEFAULT_SEASON) -> pd.DataFrame:
+    """Download regular-season play-by-play data for every game in a season."""
+    game_ids = fetch_season_game_ids(season)
+    frames: list[pd.DataFrame] = []
+
+    logger.info("Collecting %s regular-season play-by-play for %s games", season, len(game_ids))
+
+    for index, game_id in enumerate(game_ids, start=1):
+        logger.info("Fetching game %s/%s: %s", index, len(game_ids), game_id)
+
+        game_frame = fetch_game_play_by_play(game_id)
+        if not game_frame.empty:
+            frames.append(game_frame)
+            logger.info("Retrieved %s rows for game %s", len(game_frame), game_id)
+        else:
+            logger.info("No rows returned for game %s", game_id)
+
+        if index < len(game_ids):
+            time.sleep(REQUEST_DELAY_SECONDS)
+
+    if not frames:
+        return pd.DataFrame()
+
+    combined = pd.concat(frames, ignore_index=True)
+    dedupe_keys = [
+        col
+        for col in ("gameId", "actionNumber", "actionId")
+        if col in combined.columns
+    ]
+    if dedupe_keys:
+        combined = combined.drop_duplicates(subset=dedupe_keys, keep="first")
+
+    logger.info("Collected %s total play-by-play rows for season %s", len(combined), season)
+    return combined
 
 
 def save_raw_outputs(df: pd.DataFrame, output_paths: dict[str, Path]) -> dict[str, Path]:
@@ -400,6 +497,25 @@ def collect_and_save_team_game_logs(
     )
 
 
+def collect_and_save_play_by_play(
+    season: str,
+    data_dir: Path,
+) -> dict[str, Any]:
+    play_by_play_data = collect_season_play_by_play(season)
+    output_paths = save_raw_outputs(
+        play_by_play_data,
+        play_by_play_output_paths(data_dir, season),
+    )
+    return write_metadata_entry(
+        data_dir,
+        dataset=PLAY_BY_PLAY_DATASET,
+        source=PLAY_BY_PLAY_SOURCE,
+        season=season,
+        row_count=len(play_by_play_data),
+        output_paths=output_paths,
+    )
+
+
 def collect_and_save(
     season: str = DEFAULT_SEASON,
     data_dir: Path | str = DEFAULT_DATA_DIR,
@@ -417,6 +533,8 @@ def collect_and_save(
         entries.append(collect_and_save_player_game_logs(season, resolved_data_dir))
     if TEAM_GAME_LOGS_DATASET in selected:
         entries.append(collect_and_save_team_game_logs(season, resolved_data_dir))
+    if PLAY_BY_PLAY_DATASET in selected:
+        entries.append(collect_and_save_play_by_play(season, resolved_data_dir))
 
     return entries
 
