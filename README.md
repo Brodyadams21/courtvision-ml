@@ -118,7 +118,9 @@ flowchart TD
 - Pydantic
 - SQLAlchemy
 - PostgreSQL or SQLite
-- Docker, planned
+- nba-api
+- pyarrow
+- Docker (local PostgreSQL via Compose)
 - GitHub Actions
 - AWS-style cloud-assisted ML workflow, planned
 
@@ -129,6 +131,7 @@ courtvision-ml/
 ├── README.md
 ├── pyproject.toml
 ├── requirements.txt
+├── docker-compose.yml
 ├── .gitignore
 ├── .env.example
 ├── .github/
@@ -139,11 +142,17 @@ courtvision-ml/
 │   ├── aws.yaml
 │   └── model_config.yaml
 ├── data/
-│   ├── README.md
-│   └── sample/
+│   ├── metadata/
+│   │   └── data_collection_metadata.json
+│   └── raw/
+│       ├── shots/
+│       ├── player_game_logs/
+│       ├── team_game_logs/
+│       └── play_by_play/
 ├── notebooks/
 ├── sql/
 │   ├── schema.sql
+│   ├── inspection_queries.sql
 │   ├── feature_queries.sql
 │   └── evaluation_queries.sql
 ├── src/
@@ -214,6 +223,189 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
+Set `PYTHONPATH` so the package can be imported from the project root:
+
+```powershell
+$env:PYTHONPATH = "src"
+```
+
+## Local PostgreSQL
+
+Start a PostgreSQL 16 instance for local development:
+
+```powershell
+docker compose up -d postgres
+```
+
+| Setting | Value |
+|---|---|
+| Service | `postgres` |
+| Image | `postgres:16` |
+| Database | `courtvision_ml` |
+| User | `courtvision_user` |
+| Password | `courtvision_local_dev` |
+| Host port | `5433` (maps to 5432 in the container; avoids conflict with a local PostgreSQL on 5432) |
+| Data volume | `courtvision_pgdata` (Docker named volume; persists across restarts) |
+
+Check that the database is ready:
+
+```powershell
+docker compose ps
+```
+
+Stop the database (data is kept in the volume):
+
+```powershell
+docker compose down
+```
+
+To remove the database volume as well:
+
+```powershell
+docker compose down -v
+```
+
+Copy `.env.example` to `.env` so `DATABASE_URL` points at this instance (see [Environment Variables](#environment-variables)).
+
+### Apply schema (once)
+
+Create tables the first time, or after you change `sql/schema.sql`:
+
+```powershell
+Get-Content sql/schema.sql | docker compose exec -T postgres psql -U courtvision_user -d courtvision_ml
+```
+
+### Load cleaned data (repeatable)
+
+`load_data.py` clears existing basketball rows, then inserts cleaned Parquet data. You do **not** need to rerun `schema.sql` on every reload during development.
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m courtvision.data.load_data --season 2024-25
+```
+
+The loader reads `DATABASE_URL` from `.env` (no credentials in code). Use `--append` only if you intentionally want to add rows without clearing tables first.
+
+### Inspect loaded data
+
+After loading, run `sql/inspection_queries.sql` to check row counts, missing key columns, duplicate natural keys, and date coverage. Compare table counts to the loader log output.
+
+```powershell
+Get-Content sql/inspection_queries.sql | docker compose exec -T postgres psql -U courtvision_user -d courtvision_ml
+```
+
+## Data Collection
+
+Raw NBA data is downloaded from the public [NBA Stats API](https://stats.nba.com) using [`nba-api`](https://github.com/swar/nba_api) via `src/courtvision/data/collect.py`.
+
+Each dataset is saved locally as immutable CSV and Parquet files. Collection metadata is written to `data/metadata/data_collection_metadata.json` with the source endpoint, season, download timestamp, row count, and output paths.
+
+Raw data files under `data/raw/` are gitignored and should be generated locally.
+
+### Available datasets
+
+| Dataset | CLI value | API endpoint | Notes |
+|---|---|---|---|
+| Shot charts | `shot_chart` | `shotchartdetail` | One request per team (~30 calls) |
+| Player game logs | `player_game_logs` | `playergamelogs` | Single bulk request |
+| Team game logs | `team_game_logs` | `teamgamelogs` | Single bulk request |
+| Play-by-play | `play_by_play` | `playbyplayv3` | One request per game (~1,230 calls) |
+
+Default season: `2024-25`
+
+### Output layout
+
+```txt
+data/
+├── metadata/
+│   └── data_collection_metadata.json
+└── raw/
+    ├── shots/
+    │   ├── 2024-25_shot_chart_raw.csv
+    │   └── 2024-25_shot_chart_raw.parquet
+    ├── player_game_logs/
+    │   ├── 2024-25_player_game_logs_raw.csv
+    │   └── 2024-25_player_game_logs_raw.parquet
+    ├── team_game_logs/
+    │   ├── 2024-25_team_game_logs_raw.csv
+    │   └── 2024-25_team_game_logs_raw.parquet
+    └── play_by_play/
+        ├── 2024-25_play_by_play_raw.csv
+        └── 2024-25_play_by_play_raw.parquet
+```
+
+### Run all datasets
+
+From the project root with your virtual environment activated:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m courtvision.data.collect
+```
+
+This downloads all four datasets for the default season and updates the metadata file after each dataset completes.
+
+### Run one dataset
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m courtvision.data.collect --dataset shot_chart
+python -m courtvision.data.collect --dataset player_game_logs
+python -m courtvision.data.collect --dataset team_game_logs
+python -m courtvision.data.collect --dataset play_by_play
+```
+
+### CLI options
+
+```powershell
+python -m courtvision.data.collect --help
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--season` | `2024-25` | NBA season string |
+| `--data-dir` | `data` | Root directory for raw files and metadata |
+| `--dataset` | `all` | `all`, `shot_chart`, `player_game_logs`, `team_game_logs`, or `play_by_play` |
+| `--log-level` | `INFO` | `DEBUG`, `INFO`, `WARNING`, or `ERROR` |
+
+Example for a different season:
+
+```powershell
+python -m courtvision.data.collect --season 2023-24 --dataset all --log-level DEBUG
+```
+
+### Expected runtime
+
+Collection time depends on NBA API response times and rate limiting built into the collector.
+
+| Dataset | Approximate runtime |
+|---|---|
+| Player game logs | Under 1 minute |
+| Team game logs | Under 1 minute |
+| Shot charts | A few minutes |
+| Play-by-play | 20–40 minutes |
+| All datasets | 25–45 minutes |
+
+Play-by-play is the slowest dataset because it requires one API call per regular-season game.
+
+### Programmatic use
+
+```python
+from courtvision.data.collect import collect_and_save
+
+entries = collect_and_save(season="2024-25", data_dir="data")
+for entry in entries:
+    print(entry["dataset"], entry["row_count"])
+```
+
+To collect a subset programmatically:
+
+```python
+from courtvision.data.collect import collect_and_save, PLAY_BY_PLAY_DATASET
+
+collect_and_save(season="2024-25", datasets={PLAY_BY_PLAY_DATASET})
+```
+
 ## Environment Variables
 
 Create a local `.env` file based on `.env.example`.
@@ -222,14 +414,20 @@ Example:
 
 ```env
 ENVIRONMENT=development
-DATABASE_URL=sqlite:///courtvision.db
+DATABASE_URL=postgresql+psycopg2://courtvision_user:courtvision_local_dev@localhost:5432/courtvision_ml
 MLFLOW_TRACKING_URI=./mlruns
 MODEL_REGISTRY_PATH=models/
 AWS_REGION=us-east-1
 S3_BUCKET=
 ```
 
-Do not commit real secrets, keys, credentials, or cloud account information.
+For local work without Docker, you can use SQLite instead:
+
+```env
+DATABASE_URL=sqlite:///courtvision.db
+```
+
+Do not commit real secrets, keys, credentials, or cloud account information. The Compose password above is for local development only.
 
 ## Quality Checks
 
@@ -279,12 +477,14 @@ The CI workflow will:
 - Add metadata files for source, season, download date, and row counts
 - Convert reusable files to efficient formats such as Parquet
 
+Phase 1 data collection is implemented for the 2024-25 season via `src/courtvision/data/collect.py`.
+
 ### Phase 2: SQL Schema and Cleaned Data Tables
 
 - Create database schema
-- Load cleaned data into SQL
-- Create tables for players, teams, games, shots, features, predictions, and player evaluation
-- Add row count and data quality queries
+- Load cleaned data into SQL via `src/courtvision/data/load_data.py`
+- Create tables for players, teams, games, shots, and game logs
+- Add row count and data quality queries in `sql/inspection_queries.sql`
 
 ### Phase 3: Data Validation
 
@@ -368,7 +568,7 @@ The CI workflow will:
 
 ## Current Status
 
-Phase 0 is in progress.
+Phase 0 is complete. Phase 1 raw data collection is available for shot charts, player game logs, team game logs, and play-by-play via `python -m courtvision.data.collect`.
 
 ## Final Project Outcome
 
