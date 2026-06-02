@@ -952,8 +952,14 @@ def load_season_to_postgres(
     By default, clears loaded tables first so you do not need to rerun schema.sql
     on every reload during development.
     """
+    from courtvision.data.validate import validate_all_cleaned_datasets
+
     engine = create_database_engine(database_url=database_url, env_path=env_path)
     datasets = build_cleaned_datasets(season, data_dir=data_dir)
+
+    validation_report = validate_all_cleaned_datasets(datasets, season=season)
+    validation_report.log_issues()
+    validation_report.raise_if_failed()
 
     if clear_before_load:
         clear_loaded_tables(engine)

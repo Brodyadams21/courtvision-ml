@@ -286,6 +286,15 @@ python -m courtvision.data.load_data --season 2024-25
 
 The loader reads `DATABASE_URL` from `.env` (no credentials in code). Use `--append` only if you intentionally want to add rows without clearing tables first.
 
+### Validate before load
+
+`load_data.py` runs `validate_all_cleaned_datasets()` before any PostgreSQL insert:
+
+1. **Pandera** (`src/courtvision/data/schemas.py`) — column types, nulls, ranges, allowed values
+2. **Custom checks** (`src/courtvision/data/validate.py`) — season row counts, duplicate keys, FK sanity, play-by-play warnings
+
+Critical issues stop the pipeline; warnings (mostly play-by-play gaps) are logged only.
+
 ### Inspect loaded data
 
 After loading, run `sql/inspection_queries.sql` to check row counts, missing key columns, duplicate natural keys, and date coverage. Compare table counts to the loader log output.
@@ -488,8 +497,9 @@ Phase 1 data collection is implemented for the 2024-25 season via `src/courtvisi
 
 ### Phase 3: Data Validation
 
-- Validate required IDs, dates, shot values, and coordinate ranges
-- Check missing values and duplicate rows
+- Pandera schemas in `src/courtvision/data/schemas.py` plus custom checks in `validate.py`
+- Critical: schema violations, duplicates, row-count floors, date ranges, FK sanity
+- Warning: optional play-by-play and shot metadata gaps
 - Fail the pipeline if critical checks do not pass
 
 ### Phase 4: Feature Engineering

@@ -9,6 +9,7 @@ seaborn
 jupyter
 sqlalchemy
 psycopg2-binary
+pandera>=0.22.0
 fastapi
 uvicorn
 streamlit
