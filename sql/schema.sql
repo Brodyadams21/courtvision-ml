@@ -12,13 +12,15 @@
 --   5. player_game_logs
 --   6. team_game_logs
 --   7. play_by_play    -- person_id is not FK-constrained (coaches, officials, missing players)
---   ML tables (shot_features, shot_predictions, player_evaluation) stay empty until later phases.
+--   ML tables (gold_shot_features, shot_features, shot_predictions, player_evaluation)
+--   stay empty until later phases.
 
 -- ---------------------------------------------------------------------------
 -- 1. Drop old tables
 -- ---------------------------------------------------------------------------
 
 DROP TABLE IF EXISTS shot_predictions CASCADE;
+DROP TABLE IF EXISTS gold_shot_features CASCADE;
 DROP TABLE IF EXISTS shot_features CASCADE;
 DROP TABLE IF EXISTS player_evaluation CASCADE;
 DROP TABLE IF EXISTS predictions CASCADE;
@@ -232,6 +234,65 @@ CREATE TABLE shot_features (
     PRIMARY KEY (shot_id, feature_set_version)
 );
 
+CREATE TABLE gold_shot_features (
+    shot_id                 BIGINT      NOT NULL REFERENCES shots (shot_id),
+    game_id                 VARCHAR(10) NOT NULL REFERENCES games (game_id),
+    game_event_id           INTEGER     NOT NULL,
+    player_id               INTEGER     NOT NULL REFERENCES players (player_id),
+    team_id                 INTEGER     NOT NULL REFERENCES teams (team_id),
+    opponent_team_id        INTEGER     NOT NULL REFERENCES teams (team_id),
+    season                  VARCHAR(7)  NOT NULL,
+    game_date               DATE        NOT NULL,
+    feature_set_version     VARCHAR(40) NOT NULL,
+    shot_made_flag          BOOLEAN     NOT NULL,
+    shot_value              SMALLINT    NOT NULL,
+    -- Base shot geometry and zones
+    shot_distance           SMALLINT,
+    loc_x                   SMALLINT,
+    loc_y                   SMALLINT,
+    abs_loc_x               SMALLINT,
+    shot_angle              NUMERIC(10, 6),
+    is_corner_three         BOOLEAN,
+    is_home                 BOOLEAN,
+    shot_zone_basic         VARCHAR(40),
+    shot_zone_area          VARCHAR(40),
+    shot_zone_range         VARCHAR(40),
+    -- Game state
+    period                  SMALLINT,
+    seconds_remaining_period NUMERIC(8, 2),
+    seconds_remaining_game  NUMERIC(8, 2),
+    score_margin            SMALLINT,
+    -- Player rolling (previous 5 games, shifted — excludes current game)
+    player_recent_fg_pct_5  NUMERIC(6, 4),
+    player_recent_fg3_pct_5 NUMERIC(6, 4),
+    player_recent_fga_5     NUMERIC(6, 2),
+    player_recent_fg3a_5    NUMERIC(6, 2),
+    player_recent_minutes_5 NUMERIC(6, 2),
+    player_recent_points_5  NUMERIC(6, 2),
+    -- Team rolling (previous 5 games, shifted — excludes current game)
+    team_recent_off_eff_proxy_5     NUMERIC(8, 4),
+    team_recent_pace_proxy_5        NUMERIC(8, 4),
+    team_recent_fg_pct_5            NUMERIC(6, 4),
+    team_recent_three_point_rate_5  NUMERIC(6, 4),
+    team_recent_fga_5               NUMERIC(6, 2),
+    team_recent_points_5            NUMERIC(6, 2),
+    team_recent_turnovers_5         NUMERIC(6, 2),
+    -- Opponent rolling (previous 5 games allowed, shifted — excludes current game)
+    opp_recent_points_allowed_5             NUMERIC(6, 2),
+    opp_recent_fg_pct_allowed_5           NUMERIC(6, 4),
+    opp_recent_three_point_rate_allowed_5   NUMERIC(6, 4),
+    opp_recent_pace_proxy_5                 NUMERIC(8, 4),
+    opp_recent_fga_allowed_5                NUMERIC(6, 2),
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (shot_id, feature_set_version),
+    CONSTRAINT gold_shot_features_distinct_teams CHECK (team_id <> opponent_team_id),
+    CONSTRAINT gold_shot_features_shot_value CHECK (shot_value IN (2, 3))
+);
+
+COMMENT ON TABLE gold_shot_features IS
+    'Model-ready shot feature table (gold layer). One row per shot per feature_set_version. '
+    'Geometry, game-state, and rolling columns are nullable until the feature pipeline fills them.';
+
 CREATE TABLE shot_predictions (
     shot_id                 BIGINT      NOT NULL REFERENCES shots (shot_id),
     model_name              VARCHAR(80) NOT NULL,
@@ -299,6 +360,14 @@ CREATE INDEX idx_play_by_play_action_type ON play_by_play (action_type);
 CREATE INDEX idx_play_by_play_is_field_goal ON play_by_play (is_field_goal);
 
 -- ML tables
+CREATE INDEX idx_gold_shot_features_game_id ON gold_shot_features (game_id);
+CREATE INDEX idx_gold_shot_features_player_id ON gold_shot_features (player_id);
+CREATE INDEX idx_gold_shot_features_team_id ON gold_shot_features (team_id);
+CREATE INDEX idx_gold_shot_features_opponent_team_id ON gold_shot_features (opponent_team_id);
+CREATE INDEX idx_gold_shot_features_season ON gold_shot_features (season);
+CREATE INDEX idx_gold_shot_features_game_date ON gold_shot_features (game_date);
+CREATE INDEX idx_gold_shot_features_feature_set_version ON gold_shot_features (feature_set_version);
+
 CREATE INDEX idx_shot_features_player_id ON shot_features (player_id);
 CREATE INDEX idx_shot_features_season ON shot_features (season);
 

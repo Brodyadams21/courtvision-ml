@@ -1,10 +1,15 @@
-"""Phase 3 data validation for cleaned CourtVision ML tables.
+"""Phase 3–4 data validation for CourtVision ML tables.
 
-Validation layers (run before PostgreSQL load):
-  1. Pandera schemas (schemas.py) — column types, nulls, ranges, allowed values
-  2. Custom checks (this module) — season thresholds, duplicates, FK sanity, warnings
+Validation layers:
+  Phase 3 (before PostgreSQL load of cleaned tables):
+    1. Pandera schemas (schemas.py) — column types, nulls, ranges, allowed values
+    2. Custom checks (this module) — season thresholds, duplicates, FK sanity, warnings
 
-Critical failures stop the load pipeline. Warnings are logged for expected messiness
+  Phase 4 (gold shot features, before gold load):
+    1. Pandera gold schema — required columns and shot_value domain
+    2. Custom checks — shot_id uniqueness and required field null checks
+
+Critical failures stop the pipeline. Warnings are logged for expected messiness
 (especially play-by-play) but do not block inserts.
 """
 
@@ -19,7 +24,7 @@ import pandas as pd
 from pandera.errors import SchemaErrors
 
 from courtvision.data.collect import DEFAULT_SEASON
-from courtvision.data.schemas import TABLE_SCHEMAS
+from courtvision.data.schemas import GOLD_TABLE_SCHEMAS, TABLE_SCHEMAS
 
 logger = logging.getLogger(__name__)
 
@@ -654,4 +659,114 @@ def validate_all_cleaned_datasets(
         report=report,
     )
 
+    return report
+
+
+GOLD_SHOT_FEATURES_TABLE = "gold_shot_features"
+GOLD_SHOT_FEATURES_UNIQUE_KEY: tuple[str, ...] = ("shot_id",)
+GOLD_SHOT_FEATURES_REQUIRED_COLUMNS: tuple[str, ...] = (
+    "shot_id",
+    "shot_made_flag",
+    "game_date",
+    "team_id",
+    "player_id",
+    "opponent_team_id",
+    "is_home",
+)
+_VALID_SHOT_VALUE = frozenset({2, 3})
+
+
+def _check_values_in_set(
+    report: ValidationReport,
+    table: str,
+    df: pd.DataFrame,
+    column: str,
+    allowed: frozenset[int] | frozenset[str],
+) -> None:
+    if df.empty or column not in df.columns:
+        return
+
+    invalid_count = int((~df[column].isin(allowed) & df[column].notna()).sum())
+    if invalid_count > 0:
+        report.add(
+            "critical",
+            table,
+            f"invalid_{column}",
+            f"{invalid_count} row(s) with {column} not in {sorted(allowed)}",
+            count=invalid_count,
+        )
+
+
+def validate_gold_pandera_schemas(
+    datasets: dict[str, pd.DataFrame],
+    report: ValidationReport,
+) -> None:
+    """Layer 1: validate gold tables against Pandera schemas."""
+    for table_name, schema in GOLD_TABLE_SCHEMAS.items():
+        dataframe = datasets[table_name]
+        if dataframe.empty:
+            report.add(
+                "critical",
+                table_name,
+                "pandera_empty",
+                "DataFrame is empty; schema validation cannot run",
+            )
+            continue
+
+        try:
+            schema.validate(dataframe, lazy=True)
+        except SchemaErrors as exc:
+            _record_pandera_schema_errors(report, table_name, exc)
+
+
+def validate_gold_shot_features(
+    gold: pd.DataFrame,
+    *,
+    season: str,
+    report: ValidationReport,
+) -> None:
+    """Phase 4 custom checks for model-ready gold shot features."""
+    table = GOLD_SHOT_FEATURES_TABLE
+
+    if gold.empty:
+        report.add(
+            "critical",
+            table,
+            "empty",
+            "Gold shot features DataFrame is empty",
+        )
+        return
+
+    _check_required_columns(report, table, gold, GOLD_SHOT_FEATURES_REQUIRED_COLUMNS)
+    _check_no_duplicate_keys(report, table, gold, GOLD_SHOT_FEATURES_UNIQUE_KEY)
+    _check_values_in_set(report, table, gold, "shot_value", _VALID_SHOT_VALUE)
+
+    thresholds = _SEASON_THRESHOLDS.get(season, {}).get("shots")
+    if thresholds is not None:
+        row_count = len(gold)
+        if "min" in thresholds and row_count < thresholds["min"]:
+            report.add(
+                "critical",
+                table,
+                "row_count_min",
+                f"expected at least {thresholds['min']} rows, found {row_count}",
+                count=row_count,
+            )
+
+
+def validate_all_gold_shot_features(
+    gold: pd.DataFrame,
+    *,
+    season: str = DEFAULT_SEASON,
+    feature_set_version: str = "base_v1",
+) -> ValidationReport:
+    """Run Phase 4 Pandera schema and custom validators on gold shot features."""
+    report = ValidationReport(season=season)
+
+    validation_frame = gold.copy()
+    if "feature_set_version" not in validation_frame.columns:
+        validation_frame["feature_set_version"] = feature_set_version
+
+    validate_gold_pandera_schemas({GOLD_SHOT_FEATURES_TABLE: validation_frame}, report)
+    validate_gold_shot_features(gold, season=season, report=report)
     return report
