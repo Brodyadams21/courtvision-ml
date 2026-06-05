@@ -241,6 +241,7 @@ data/external/
 # Model artifacts
 models/
 artifacts/
+mlartifacts/
 mlruns/
 *.pkl
 *.joblib
