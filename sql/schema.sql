@@ -262,6 +262,7 @@ CREATE TABLE gold_shot_features (
     seconds_remaining_period NUMERIC(8, 2),
     seconds_remaining_game  NUMERIC(8, 2),
     score_margin            SMALLINT,
+    score_margin_missing    BOOLEAN     NOT NULL DEFAULT TRUE,
     -- Player rolling (previous 5 games, shifted — excludes current game)
     player_recent_fg_pct_5  NUMERIC(6, 4),
     player_recent_fg3_pct_5 NUMERIC(6, 4),

@@ -2,7 +2,8 @@
 
 Base shot features join ``shots``, ``games``, and ``teams``. Player, team, and
 opponent rolling features follow. ``score_margin`` is optional and non-blocking:
-it joins ``play_by_play`` when scores are available and stays null otherwise.
+it joins ``play_by_play`` on prior-event scores (never the shot outcome) and stays
+null when PBP alignment is missing.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_FEATURE_SET_VERSION = "base_v1"
 GOLD_SHOT_FEATURES_TABLE = "gold_shot_features"
 SCORE_MARGIN_COLUMN = "score_margin"
+SCORE_MARGIN_MISSING_COLUMN = "score_margin_missing"
 PLAYER_ROLLING_WINDOW = 5
 TEAM_ROLLING_WINDOW = 5
 ROLLING_WINDOW = PLAYER_ROLLING_WINDOW
@@ -94,6 +96,7 @@ GOLD_SHOT_FEATURES_INSERT_COLUMNS: tuple[str, ...] = (
     *TEAM_ROLLING_FEATURE_COLUMNS,
     *OPPONENT_ROLLING_FEATURE_COLUMNS,
     SCORE_MARGIN_COLUMN,
+    SCORE_MARGIN_MISSING_COLUMN,
 )
 
 CORE_SHOT_FEATURE_COLUMNS: tuple[str, ...] = (
@@ -158,7 +161,10 @@ BASE_SHOT_FEATURE_COLUMNS: tuple[str, ...] = (
     "shot_zone_range",
 )
 
-SHOT_FEATURE_COLUMNS: tuple[str, ...] = CORE_SHOT_FEATURE_COLUMNS + (SCORE_MARGIN_COLUMN,)
+SHOT_FEATURE_COLUMNS: tuple[str, ...] = CORE_SHOT_FEATURE_COLUMNS + (
+    SCORE_MARGIN_COLUMN,
+    SCORE_MARGIN_MISSING_COLUMN,
+)
 
 _SHOT_SOURCES_SQL = """
 SELECT
@@ -226,8 +232,6 @@ SELECT
     pbp.score_away
 FROM play_by_play AS pbp
 INNER JOIN games AS g ON g.game_id = pbp.game_id
-WHERE pbp.score_home IS NOT NULL
-  AND pbp.score_away IS NOT NULL
 """
 
 
@@ -273,63 +277,72 @@ def query_play_by_play_scores(
 
 
 def _add_null_score_margin(features: pd.DataFrame) -> pd.DataFrame:
-    """Return ``features`` with a nullable ``score_margin`` column."""
+    """Return ``features`` with null ``score_margin`` and missingness flag set."""
     if features.empty:
         return pd.DataFrame(columns=list(SHOT_FEATURE_COLUMNS))
 
     output = features.copy()
     output[SCORE_MARGIN_COLUMN] = pd.Series(pd.NA, index=output.index, dtype="Int64")
+    output[SCORE_MARGIN_MISSING_COLUMN] = pd.Series(True, index=output.index, dtype=bool)
     return output[list(SHOT_FEATURE_COLUMNS)]
+
+
+def _prepare_prior_pbp_scores(pbp_scores: pd.DataFrame) -> pd.DataFrame:
+    """Build pre-shot score snapshots from the prior PBP event in each game."""
+    pbp = pbp_scores.sort_values(["game_id", "action_number"]).copy()
+    for column in ("score_home", "score_away"):
+        pbp[column] = pbp.groupby("game_id")[column].ffill()
+    pbp["prior_score_home"] = pbp.groupby("game_id")["score_home"].shift(1)
+    pbp["prior_score_away"] = pbp.groupby("game_id")["score_away"].shift(1)
+    pbp["prior_score_home"] = pbp["prior_score_home"].fillna(0)
+    pbp["prior_score_away"] = pbp["prior_score_away"].fillna(0)
+    return pbp.rename(columns={"action_number": "game_event_id"})[
+        ["game_id", "game_event_id", "prior_score_home", "prior_score_away"]
+    ]
 
 
 def attach_score_margin(
     features: pd.DataFrame,
     pbp_scores: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Join PBP scores and compute pre-shot margin from the shooting team's perspective.
+    """Join prior PBP scores and compute pre-shot margin from the shooting team's perspective.
 
-    Matches shots on ``game_id`` + ``game_event_id`` = ``action_number``.
-    Unmatched shots keep ``score_margin`` null; this step never raises.
+    Matches shots on ``game_id`` + ``game_event_id`` = ``action_number``. Uses the score
+    from the previous PBP event in the same game — never ``shot_made_flag`` or
+    ``shot_value``. Unmatched shots keep ``score_margin`` null.
     """
     if features.empty:
         return _add_null_score_margin(features)
 
-    scores = pbp_scores.rename(columns={"action_number": "game_event_id"})[
-        ["game_id", "game_event_id", "score_home", "score_away"]
-    ]
+    prior_scores = _prepare_prior_pbp_scores(pbp_scores)
     merged = features.merge(
-        scores,
+        prior_scores,
         on=["game_id", "game_event_id"],
         how="left",
         validate="m:1",
     )
 
-    has_score = merged["score_home"].notna() & merged["score_away"].notna()
-    points_scored = np.where(
-        merged["shot_made_flag"].astype(bool),
-        merged["shot_value"].astype(int),
-        0,
-    )
+    matched = merged["prior_score_home"].notna() & merged["prior_score_away"].notna()
     is_home = merged["is_home"].astype(bool)
-    home_score = merged["score_home"].astype(float)
-    away_score = merged["score_away"].astype(float)
-    team_score = np.where(is_home, home_score - points_scored, away_score - points_scored)
-    opp_score = np.where(is_home, away_score, home_score)
-    margin = team_score - opp_score
+    prior_home = merged["prior_score_home"].astype(float)
+    prior_away = merged["prior_score_away"].astype(float)
+    margin = np.where(is_home, prior_home - prior_away, prior_away - prior_home)
 
     merged[SCORE_MARGIN_COLUMN] = pd.array(
-        np.where(has_score, margin, np.nan),
+        np.where(matched, margin, np.nan),
         dtype=pd.Int64Dtype(),
     )
-    matched = int(has_score.sum())
+    merged[SCORE_MARGIN_MISSING_COLUMN] = merged[SCORE_MARGIN_COLUMN].isna().astype(bool)
+
+    matched_count = int(matched.sum())
     total = len(features)
     logger.info(
         "Score margin attached for %s/%s shots (%.1f%%); unmatched remain null",
-        matched,
+        matched_count,
         total,
-        100.0 * matched / total if total else 0.0,
+        100.0 * matched_count / total if total else 0.0,
     )
-    return merged.drop(columns=["score_home", "score_away"])[list(SHOT_FEATURE_COLUMNS)]
+    return merged.drop(columns=["prior_score_home", "prior_score_away"])[list(SHOT_FEATURE_COLUMNS)]
 
 
 def attach_score_margin_from_db(
@@ -1247,7 +1260,10 @@ def parse_args() -> argparse.Namespace:
         "--chunksize",
         type=int,
         default=5_000,
-        help="Rows per insert batch when loading gold (default: 5000)",
+        help=(
+            "Target rows per insert batch when loading gold (default: 5000). "
+            "Automatically reduced if needed for PostgreSQL bind limits."
+        ),
     )
     parser.add_argument(
         "--skip-score-margin",

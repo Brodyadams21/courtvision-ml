@@ -25,6 +25,9 @@ from sqlalchemy.engine import Engine
 
 logger = logging.getLogger(__name__)
 
+# PostgreSQL limits bind parameters per prepared statement (see PG docs: limits).
+POSTGRES_MAX_BIND_PARAMS = 65_535
+
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_ENV_PATH = PROJECT_ROOT / ".env"
 
@@ -899,6 +902,31 @@ def truncate_loaded_tables(engine: Engine) -> None:
     clear_loaded_tables(engine)
 
 
+def effective_insert_chunksize(
+    requested_chunksize: int,
+    num_columns: int,
+    *,
+    max_bind_params: int = POSTGRES_MAX_BIND_PARAMS,
+) -> int:
+    """Return a batch size safe for ``pandas.to_sql(..., method=\"multi\")``.
+
+    Each row in a multi-value INSERT consumes one bind parameter per column.
+    PostgreSQL rejects statements that exceed ``max_bind_params`` (65535).
+    """
+    if requested_chunksize < 1:
+        raise ValueError(f"chunksize must be >= 1 (got {requested_chunksize})")
+    if num_columns < 1:
+        raise ValueError(f"num_columns must be >= 1 (got {num_columns})")
+
+    max_rows_per_batch = max_bind_params // num_columns
+    if max_rows_per_batch < 1:
+        raise ValueError(
+            f"Cannot insert {num_columns} columns with method='multi': "
+            f"exceeds PostgreSQL bind limit ({max_bind_params})"
+        )
+    return min(requested_chunksize, max_rows_per_batch)
+
+
 def insert_dataframe(
     engine: Engine,
     table_name: str,
@@ -911,15 +939,32 @@ def insert_dataframe(
         logger.warning("Skipping empty insert for %s", table_name)
         return
 
+    effective_chunksize = effective_insert_chunksize(chunksize, len(dataframe.columns))
+    if effective_chunksize < chunksize:
+        logger.info(
+            "Capping insert batch size for %s: requested=%s effective=%s "
+            "(%s columns; PostgreSQL bind limit %s)",
+            table_name,
+            chunksize,
+            effective_chunksize,
+            len(dataframe.columns),
+            POSTGRES_MAX_BIND_PARAMS,
+        )
+
     logger.info("Inserting %s rows into %s", len(dataframe), table_name)
-    dataframe.to_sql(
-        table_name,
-        engine,
-        if_exists="append",
-        index=False,
-        chunksize=chunksize,
-        method="multi",
-    )
+    try:
+        dataframe.to_sql(
+            table_name,
+            engine,
+            if_exists="append",
+            index=False,
+            chunksize=effective_chunksize,
+            method="multi",
+        )
+    except Exception as exc:
+        orig = getattr(exc, "orig", None)
+        detail = str(orig) if orig is not None else str(exc).split("\n")[0]
+        raise RuntimeError(f"Insert into {table_name} failed: {detail}") from None
 
 
 def load_cleaned_datasets_to_postgres(
@@ -934,7 +979,7 @@ def load_cleaned_datasets_to_postgres(
             engine,
             table_name,
             datasets[table_name],
-            chunksize=_chunksize_for_table(table_name, default=chunksize),
+            chunksize=chunksize,
         )
 
 
@@ -968,12 +1013,6 @@ def load_season_to_postgres(
     return datasets
 
 
-def _chunksize_for_table(table_name: str, *, default: int) -> int:
-    if table_name == "play_by_play":
-        return max(default, 10_000)
-    return default
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Load cleaned NBA data into PostgreSQL.")
     parser.add_argument("--season", default=DEFAULT_SEASON, help="Season label (e.g. 2024-25)")
@@ -996,7 +1035,10 @@ def parse_args() -> argparse.Namespace:
         "--chunksize",
         type=int,
         default=5_000,
-        help="Rows per insert batch (default: 5000)",
+        help=(
+            "Target rows per insert batch (default: 5000). "
+            "Automatically reduced if needed for PostgreSQL bind limits."
+        ),
     )
     parser.add_argument(
         "--log-level",

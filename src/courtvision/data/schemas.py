@@ -144,6 +144,7 @@ gold_shot_features_schema = DataFrameSchema(
         "seconds_remaining_period": Column(float, nullable=True),
         "seconds_remaining_game": Column(float, nullable=True),
         "score_margin": Column("Int64", nullable=True),
+        "score_margin_missing": Column(bool, nullable=False),
         "player_recent_fg_pct_5": Column(float, nullable=True),
         "player_recent_fg3_pct_5": Column(float, nullable=True),
         "player_recent_fga_5": Column(float, nullable=True),
