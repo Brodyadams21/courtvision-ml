@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import argparse
+
 import pandas as pd
+import pytest
 
 from courtvision.models.common import FEATURE_COLUMNS, TARGET_COLUMN
 from courtvision.models.train_lgbm import (
     INNER_TRAIN_FRACTION,
+    LGBM_GAIN_IMPORTANCE,
+    LGBM_SPLIT_IMPORTANCE,
     SEARCH_CONFIGS,
+    _validate_cli_args,
     build_lgbm_classifier,
+    lgbm_feature_importance,
     split_inner_train_validation,
 )
 
@@ -43,6 +50,41 @@ def test_build_lgbm_classifier_accepts_overrides() -> None:
     model = build_lgbm_classifier(num_leaves=15, n_estimators=100)
     assert model.get_params()["num_leaves"] == 15
     assert model.get_params()["n_estimators"] == 100
+
+
+def test_lgbm_feature_importance_returns_gain_and_split_vectors() -> None:
+    frame = _synthetic_train_frame(n_games=4)
+    x_train = frame[FEATURE_COLUMNS]
+    y_train = frame[TARGET_COLUMN]
+    model = build_lgbm_classifier(n_estimators=10)
+    model.fit(x_train, y_train)
+
+    gain = lgbm_feature_importance(model, LGBM_GAIN_IMPORTANCE)
+    split = lgbm_feature_importance(model, LGBM_SPLIT_IMPORTANCE)
+    assert gain.shape == (len(FEATURE_COLUMNS),)
+    assert split.shape == (len(FEATURE_COLUMNS),)
+    assert (gain >= 0.0).all()
+    assert (split >= 0.0).all()
+
+
+def test_register_candidate_requires_search_mode() -> None:
+    args = argparse.Namespace(
+        mode="default",
+        register_candidate=True,
+        no_mlflow=False,
+    )
+    with pytest.raises(SystemExit, match="requires --mode search"):
+        _validate_cli_args(args)
+
+
+def test_register_candidate_requires_mlflow_logging() -> None:
+    args = argparse.Namespace(
+        mode="search",
+        register_candidate=True,
+        no_mlflow=True,
+    )
+    with pytest.raises(SystemExit, match="cannot be used with --no-mlflow"):
+        _validate_cli_args(args)
 
 
 def test_inner_train_validation_split_is_time_based_and_non_overlapping() -> None:

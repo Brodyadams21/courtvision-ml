@@ -20,6 +20,7 @@ from courtvision.data.collect import DEFAULT_SEASON
 from courtvision.data.load_data import PROJECT_ROOT
 
 DEFAULT_FIGURES_DIR = PROJECT_ROOT / "reports" / "figures"
+DEFAULT_TABLES_DIR = PROJECT_ROOT / "reports" / "tables"
 CALIBRATION_N_BINS = 10
 
 TARGET_COLUMN = "shot_made_flag"

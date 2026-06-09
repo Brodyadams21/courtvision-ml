@@ -294,7 +294,11 @@ def collect_season_shot_charts(season: str = DEFAULT_SEASON) -> pd.DataFrame:
         return pd.DataFrame()
 
     combined = pd.concat(frames, ignore_index=True)
-    dedupe_keys = [col for col in ("GAME_ID", "GAME_EVENT_ID", "PLAYER_ID") if col in combined.columns]
+    dedupe_keys = [
+        col
+        for col in ("GAME_ID", "GAME_EVENT_ID", "PLAYER_ID")
+        if col in combined.columns
+    ]
     if dedupe_keys:
         combined = combined.drop_duplicates(subset=dedupe_keys, keep="first")
 

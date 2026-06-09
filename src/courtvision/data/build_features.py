@@ -609,7 +609,11 @@ def build_opponent_rolling_features(logs: pd.DataFrame) -> pd.DataFrame:
         lambda series: _shifted_rolling_mean(series, window)
     )
     frame["opp_recent_fg_pct_allowed_5"] = np.where(fga_sum > 0, fgm_sum / fga_sum, np.nan)
-    frame["opp_recent_three_point_rate_allowed_5"] = np.where(fga_sum > 0, fg3a_sum / fga_sum, np.nan)
+    frame["opp_recent_three_point_rate_allowed_5"] = np.where(
+        fga_sum > 0,
+        fg3a_sum / fga_sum,
+        np.nan,
+    )
     frame["opp_recent_pace_proxy_5"] = grouped["allowed_possessions"].transform(
         lambda series: _shifted_rolling_mean(series, window)
     )

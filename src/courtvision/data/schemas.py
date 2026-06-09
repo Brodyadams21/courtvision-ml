@@ -9,7 +9,6 @@ Season thresholds, duplicate keys, FK sanity, and play-by-play warnings stay in 
 from __future__ import annotations
 
 import pandas as pd
-import pandera.pandas as pa
 from pandera.pandas import Check, Column, DataFrameSchema
 
 VALID_SHOT_TYPES: frozenset[str] = frozenset({"2PT Field Goal", "3PT Field Goal"})

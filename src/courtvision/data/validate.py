@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Literal
+from typing import Literal
 
 import pandas as pd
 from pandera.errors import SchemaErrors

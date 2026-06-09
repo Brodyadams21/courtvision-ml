@@ -23,6 +23,16 @@ from nba_api.stats.static import teams as nba_teams
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
+from courtvision.data.collect import (
+    DEFAULT_DATA_DIR,
+    DEFAULT_SEASON,
+    normalize_game_id,
+    play_by_play_output_paths,
+    player_game_logs_output_paths,
+    shot_chart_output_paths,
+    team_game_logs_output_paths,
+)
+
 logger = logging.getLogger(__name__)
 
 # PostgreSQL limits bind parameters per prepared statement (see PG docs: limits).
@@ -30,16 +40,6 @@ POSTGRES_MAX_BIND_PARAMS = 65_535
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_ENV_PATH = PROJECT_ROOT / ".env"
-
-from courtvision.data.collect import (
-    DEFAULT_DATA_DIR,
-    DEFAULT_SEASON,
-    normalize_game_id,
-    player_game_logs_output_paths,
-    play_by_play_output_paths,
-    shot_chart_output_paths,
-    team_game_logs_output_paths,
-)
 
 # --- Raw Parquet paths (season-based; mirrors collect.py output layout) --------
 # Example for season="2024-25":

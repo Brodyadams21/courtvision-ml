@@ -25,12 +25,19 @@ from courtvision.data.build_features import (
 from courtvision.data.collect import DEFAULT_SEASON
 from courtvision.data.load_data import DEFAULT_ENV_PATH
 from courtvision.models.common import (
+    DEFAULT_FIGURES_DIR,
+    DEFAULT_TABLES_DIR,
     FEATURE_COLUMNS,
     evaluate_classification_metrics,
     load_train_test_parquet,
     save_calibration_curve,
     save_probability_distribution,
     split_features_target,
+)
+from courtvision.models.registry import (
+    CANDIDATE_ALIAS,
+    REGISTERED_MODEL_NAME,
+    promote_model_version_to_candidate,
 )
 
 MODEL_TYPE = "lightgbm"
@@ -254,19 +261,49 @@ def _log_test_metrics(metrics: dict[str, float]) -> None:
     mlflow.log_metric("test_accuracy", metrics["accuracy"])
 
 
+LGBM_GAIN_IMPORTANCE = "gain"
+LGBM_SPLIT_IMPORTANCE = "split"
+
+
+def lgbm_feature_importance(
+    model: LGBMClassifier,
+    importance_type: str,
+) -> np.ndarray:
+    """Return per-feature importance from the fitted LightGBM booster."""
+    return np.asarray(
+        model.booster_.feature_importance(importance_type=importance_type),
+        dtype=float,
+    )
+
+
+def _importance_axis_label(importance_type: str) -> str:
+    if importance_type == LGBM_GAIN_IMPORTANCE:
+        return "Importance (gain)"
+    return "Importance (split count)"
+
+
+def _importance_plot_title(importance_type: str) -> str:
+    if importance_type == LGBM_GAIN_IMPORTANCE:
+        return "LightGBM feature importance (gain)"
+    return "LightGBM feature importance (split count)"
+
+
 def save_feature_importance_plot(
     model: LGBMClassifier,
     feature_names: list[str],
     output_path: Path,
+    *,
+    importance_type: str = LGBM_GAIN_IMPORTANCE,
 ) -> Path:
-    """Save horizontal bar chart of LightGBM split gain importances."""
+    """Save horizontal bar chart of LightGBM feature importances."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    importance = pd.Series(model.feature_importances_, index=feature_names).sort_values()
+    values = lgbm_feature_importance(model, importance_type)
+    importance = pd.Series(values, index=feature_names).sort_values()
 
     fig, ax = plt.subplots(figsize=(8, max(6, len(feature_names) * 0.25)))
     importance.plot.barh(ax=ax, color="steelblue")
-    ax.set_xlabel("Importance (split gain)")
-    ax.set_title("LightGBM feature importance")
+    ax.set_xlabel(_importance_axis_label(importance_type))
+    ax.set_title(_importance_plot_title(importance_type))
     ax.grid(True, axis="x", alpha=0.3)
     fig.tight_layout()
     fig.savefig(output_path, dpi=150)
@@ -278,13 +315,16 @@ def save_feature_importance_csv(
     model: LGBMClassifier,
     feature_names: list[str],
     output_path: Path,
+    *,
+    importance_type: str = LGBM_GAIN_IMPORTANCE,
 ) -> Path:
     """Write feature importances to CSV sorted descending."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    values = lgbm_feature_importance(model, importance_type)
     frame = pd.DataFrame(
         {
             "feature": feature_names,
-            "importance": model.feature_importances_,
+            "importance": values,
         }
     ).sort_values("importance", ascending=False)
     frame.to_csv(output_path, index=False)
@@ -297,7 +337,8 @@ def log_best_model_artifacts(
     y_test: pd.Series,
     test_proba: np.ndarray,
     season: str,
-) -> None:
+    register_candidate: bool = False,
+) -> int | None:
     """Log calibration, probability distribution, importances, model, and feature list."""
     with tempfile.TemporaryDirectory() as tmpdir:
         artifact_dir = Path(tmpdir)
@@ -314,15 +355,29 @@ def log_best_model_artifacts(
             artifact_dir / "lightgbm_probability_distribution.png",
             title=f"LightGBM predicted probability distribution (test, {season})",
         )
-        importance_plot_path = save_feature_importance_plot(
+        gain_plot_path = save_feature_importance_plot(
             model,
             FEATURE_COLUMNS,
-            artifact_dir / "lightgbm_feature_importance.png",
+            DEFAULT_FIGURES_DIR / "lightgbm_feature_importance_gain.png",
+            importance_type=LGBM_GAIN_IMPORTANCE,
         )
-        importance_csv_path = save_feature_importance_csv(
+        gain_csv_report_path = save_feature_importance_csv(
             model,
             FEATURE_COLUMNS,
-            artifact_dir / "lightgbm_feature_importance.csv",
+            DEFAULT_TABLES_DIR / "lightgbm_feature_importance_gain.csv",
+            importance_type=LGBM_GAIN_IMPORTANCE,
+        )
+        gain_csv_path = save_feature_importance_csv(
+            model,
+            FEATURE_COLUMNS,
+            artifact_dir / "lightgbm_feature_importance_gain.csv",
+            importance_type=LGBM_GAIN_IMPORTANCE,
+        )
+        split_csv_path = save_feature_importance_csv(
+            model,
+            FEATURE_COLUMNS,
+            artifact_dir / "lightgbm_feature_importance_split.csv",
+            importance_type=LGBM_SPLIT_IMPORTANCE,
         )
         feature_list_path = artifact_dir / "feature_columns.json"
         feature_list_path.write_text(
@@ -335,11 +390,24 @@ def log_best_model_artifacts(
 
         mlflow.log_artifact(str(calibration_path))
         mlflow.log_artifact(str(distribution_path))
-        mlflow.log_artifact(str(importance_plot_path))
-        mlflow.log_artifact(str(importance_csv_path))
+        mlflow.log_artifact(str(gain_plot_path))
+        mlflow.log_artifact(str(gain_csv_report_path))
+        mlflow.log_artifact(str(gain_csv_path))
+        mlflow.log_artifact(str(split_csv_path))
         mlflow.log_artifact(str(feature_list_path))
 
-    mlflow.sklearn.log_model(model, name="model")
+    model_info = mlflow.sklearn.log_model(
+        model,
+        name="model",
+        registered_model_name=REGISTERED_MODEL_NAME if register_candidate else None,
+        tags={"candidate": "true"} if register_candidate else None,
+    )
+    if not register_candidate:
+        return None
+
+    version = int(model_info.registered_model_version)
+    promote_model_version_to_candidate(version)
+    return version
 
 
 def print_metrics_block(title: str, metrics: dict[str, float]) -> None:
@@ -422,6 +490,7 @@ def run_search(
     processed_dir: Path | None = None,
     inner_train_fraction: float = INNER_TRAIN_FRACTION,
     log_mlflow: bool = True,
+    register_candidate: bool = False,
 ) -> SearchTrialResult:
     """Small hyperparameter search with inner validation; retrain best on full train."""
     paths = processed_train_test_paths(season, output_dir=processed_dir)
@@ -525,9 +594,11 @@ def run_search(
     print_metrics_block("Final test metrics (retrained on full train)", final_test_metrics)
 
     if log_mlflow:
-        with mlflow.start_run(run_name=f"lightgbm-best-{season}"):
+        with mlflow.start_run(run_name=f"lightgbm-best-{season}") as run:
             mlflow.set_tag("best_model", "true")
             mlflow.set_tag("selected_by", "validation_log_loss")
+            if register_candidate:
+                mlflow.set_tag("candidate", "true")
             mlflow.log_param("best_config_index", best["config_index"])
             _log_common_params(
                 season=season,
@@ -537,12 +608,19 @@ def run_search(
                 params=best_params,
             )
             _log_test_metrics(final_test_metrics)
-            log_best_model_artifacts(
+            registered_version = log_best_model_artifacts(
                 final_model,
                 y_test=y_test,
                 test_proba=test_proba,
                 season=season,
+                register_candidate=register_candidate,
             )
+            if register_candidate and registered_version is not None:
+                print(
+                    f"\nRegistered {REGISTERED_MODEL_NAME} "
+                    f"version {registered_version} with alias '{CANDIDATE_ALIAS}' "
+                    f"(run_id={run.info.run_id})"
+                )
 
     return best
 
@@ -575,11 +653,27 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip MLflow logging",
     )
+    parser.add_argument(
+        "--register-candidate",
+        action="store_true",
+        help=(
+            "Search mode only: register the final best model as "
+            f"{REGISTERED_MODEL_NAME} and set the {CANDIDATE_ALIAS} alias"
+        ),
+    )
     return parser.parse_args()
+
+
+def _validate_cli_args(args: argparse.Namespace) -> None:
+    if args.register_candidate and args.mode != "search":
+        raise SystemExit("--register-candidate requires --mode search")
+    if args.register_candidate and args.no_mlflow:
+        raise SystemExit("--register-candidate cannot be used with --no-mlflow")
 
 
 def main() -> None:
     args = parse_args()
+    _validate_cli_args(args)
     log_mlflow = not args.no_mlflow
 
     if args.mode == "search":
@@ -588,6 +682,7 @@ def main() -> None:
             processed_dir=args.processed_dir,
             inner_train_fraction=args.inner_train_fraction,
             log_mlflow=log_mlflow,
+            register_candidate=args.register_candidate,
         )
         return
 

@@ -22,7 +22,7 @@ CourtVision ML is built to align with a Data Scientist, Machine Learning role in
 | Build and productionize machine learning models | Shot quality model, expected shot value model, player evaluation metrics, FastAPI inference service |
 | Design scalable data pipelines | Raw data ingestion, cleaned SQL tables, feature generation, validation, cloud-ready storage |
 | Support basketball decision-making | Expected shot value, points above expected, zone profiles, player trend reports |
-| Use modern ML workflows | MLflow tracking, model registry, repeatable training scripts, model artifacts, CI tests |
+| Use modern ML workflows | MLflow tracking, model registry (`Candidate` alias), leakage audits, repeatable training scripts, CI tests |
 | Demonstrate testing and observability | pytest, Ruff, validation checks, model cards, monitoring reports |
 | Communicate insights clearly | Streamlit dashboard and basketball-facing reports for coaches, analysts, and decision-makers |
 
@@ -66,12 +66,13 @@ flowchart TD
 
 ### Machine Learning
 
-- Train a baseline logistic regression model
-- Train a tree-based candidate model using XGBoost or LightGBM
-- Add a PyTorch model for deep learning comparison
+- Train a baseline logistic regression model (Phase 5 — complete)
+- Train a tree-based candidate model using LightGBM (Phase 6 — complete)
+- Run single-feature leakage audits before trusting game-context features
+- Add a PyTorch model for deep learning comparison (Phase 7 — planned)
 - Evaluate models using AUC, log loss, Brier score, calibration, and accuracy
 - Track experiments, parameters, metrics, and artifacts with MLflow
-- Register the best model for API and dashboard use
+- Register the best model in the MLflow model registry (`courtvision-shot-make-model`, `Candidate` alias)
 
 ### Basketball Evaluation Layer
 
@@ -171,10 +172,14 @@ courtvision-ml/
 │       │   └── build_features.py
 │       ├── models/
 │       │   ├── __init__.py
-│       │   ├── train.py
+│       │   ├── common.py              # shared features, metrics, plots
+│       │   ├── train_baseline.py      # Phase 5 logistic regression
+│       │   ├── train_lgbm.py          # Phase 6 LightGBM search + registry
+│       │   ├── audit_feature_leakage.py
+│       │   ├── registry.py            # MLflow Candidate alias helpers
+│       │   ├── train.py               # planned unified entrypoint
 │       │   ├── evaluate.py
-│       │   ├── predict.py
-│       │   └── registry.py
+│       │   └── predict.py
 │       ├── monitoring/
 │       │   ├── __init__.py
 │       │   ├── drift.py
@@ -191,12 +196,22 @@ courtvision-ml/
 ├── dashboard/
 │   ├── app.py
 │   └── pages/
+├── scripts/
+│   └── start_mlflow.ps1
 ├── pipelines/
 │   ├── run_local_pipeline.py
 │   └── sagemaker_pipeline.py
 ├── tests/
-│   └── test_smoke.py
+│   ├── test_smoke.py
+│   ├── test_score_margin.py
+│   ├── test_audit_feature_leakage.py
+│   ├── test_train_lgbm.py
+│   └── test_registry.py
 └── reports/
+    ├── baseline_model_report.md
+    ├── lightgbm_candidate_report.md
+    ├── figures/                       # calibration, importance plots
+    ├── tables/                        # feature importance CSVs
     ├── model_card.md
     ├── basketball_insights.md
     └── cloud_architecture.md
@@ -320,7 +335,7 @@ Model-ready shot features are built from PostgreSQL with `src/courtvision/data/b
 2. **Player rolling** — previous 5 games from `player_game_logs` (shift-then-roll; excludes current game)
 3. **Team rolling** — previous 5 games from `team_game_logs`
 4. **Opponent rolling** — previous 5 games allowed (defensive view of `team_game_logs`)
-5. **Score margin** — optional join to `play_by_play` on `game_event_id` = `action_number` (non-blocking; null when PBP scores are missing)
+5. **Score margin** — optional join to `play_by_play` on `game_event_id` = `action_number`, using **prior-event** PBP score snapshots only (never `shot_made_flag`); `score_margin_missing` flags unmatched shots (non-blocking)
 6. **Phase 4 validation** — Pandera + custom checks via `validate_all_gold_shot_features()` (runs before gold insert)
 7. **Load** — insert into `gold_shot_features` (`feature_set_version` default: `base_v1`)
 8. **Export** — time-based 80/20 train/test split by game date
@@ -386,7 +401,7 @@ Example 2024-25 split: **984** train games / **175,708** shots; **246** test gam
 |---|---|
 | Keys & labels | `shot_id`, `game_id`, `player_id`, `team_id`, `opponent_team_id`, `shot_made_flag`, `shot_value` (2 or 3) |
 | Geometry & zones | `shot_distance`, `loc_x`, `loc_y`, `abs_loc_x`, `shot_angle`, `is_corner_three`, zone columns |
-| Game state | `period`, `seconds_remaining_period`, `seconds_remaining_game`, `score_margin` (optional) |
+| Game state | `period`, `seconds_remaining_period`, `seconds_remaining_game`, `score_margin`, `score_margin_missing` |
 | Player rolling | `player_recent_fg_pct_5`, `player_recent_fga_5`, … |
 | Team rolling | `team_recent_fg_pct_5`, `team_recent_pace_proxy_5`, … |
 | Opponent rolling | `opp_recent_fg_pct_allowed_5`, `opp_recent_points_allowed_5`, … |
@@ -411,6 +426,77 @@ Get-Content sql/feature_inspection_queries.sql | docker compose exec -T postgres
 ```
 
 `feature_inspection_queries.sql` covers row counts, duplicate `shot_id`, target nulls, `shot_value` domain, date range, train/test split sanity, and rolling null counts (including by month).
+
+## Modeling (Phases 5–6)
+
+Shot-make models train on exported Parquet in `data/processed/features/`. Default season: **2024-25**. Shared feature list and metrics live in `src/courtvision/models/common.py` (**31** modeling columns, including `score_margin_missing`).
+
+### Start MLflow
+
+Experiment tracking uses a local MLflow server backed by PostgreSQL (`courtvision_mlflow` database):
+
+```powershell
+.\scripts\start_mlflow.ps1
+```
+
+Open http://127.0.0.1:5000. Set `MLFLOW_TRACKING_URI=http://127.0.0.1:5000` in `.env` (see `.env.example`).
+
+### Phase 5 — Baseline logistic regression
+
+Pipeline: median imputation → standard scaling → logistic regression.
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m courtvision.models.train_baseline
+```
+
+**Experiment:** `courtvision-baseline`  
+**Report:** `reports/baseline_model_report.md` (original 30-feature Phase 5 run)  
+**Test metrics (2024-25, 31 features):** AUC 0.6397, log loss 0.6610, Brier 0.2343, accuracy 0.6062
+
+These are from a baseline rerun on the current Parquet export (`score_margin` + `score_margin_missing`). The Phase 5 report still documents the earlier 30-feature run (AUC 0.6409).
+
+### Phase 6 — LightGBM production candidate
+
+LightGBM trains on raw features (no imputation or scaling). Hyperparameter search uses an inner time-based validation split (80% of train games); the best config is retrained on full train and evaluated on held-out test.
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m courtvision.models.train_lgbm --mode search --register-candidate
+```
+
+| Flag | Description |
+|---|---|
+| `--mode default` | Single train with default hyperparameters |
+| `--mode search` | 10-config search; logs best run as `lightgbm-best-{season}` |
+| `--register-candidate` | Search only: register `courtvision-shot-make-model` and set `Candidate` alias |
+| `--no-mlflow` | Skip MLflow logging |
+
+**Experiment:** `courtvision-lightgbm`  
+**Registered model:** `courtvision-shot-make-model` (alias `Candidate`)  
+**Report:** `reports/lightgbm_candidate_report.md`  
+**Test metrics (2024-25):** AUC 0.6479, log loss 0.6495, Brier 0.2292, accuracy 0.6213
+
+**vs. 31-feature baseline:** AUC +0.0082, log loss −0.0115, Brier −0.0051, accuracy +0.0151
+
+**Artifacts (best run):** calibration curve, probability distribution, gain/split feature importance, `feature_columns.json`, sklearn model
+
+**Report figures/tables:**
+
+- `reports/figures/lightgbm_feature_importance_gain.png`
+- `reports/tables/lightgbm_feature_importance_gain.csv`
+
+### Leakage audit
+
+An early LightGBM run produced implausibly perfect metrics. The root cause was `score_margin` derived from `shot_made_flag`. Features were rebuilt with prior-PBP logic and covered by `tests/test_score_margin.py`.
+
+Run a single-feature audit before trusting new columns:
+
+```powershell
+python -m courtvision.models.audit_feature_leakage
+```
+
+Flags any feature with test AUC ≥ 0.90. After the fix, no feature exceeded the threshold on 2024-25.
 
 ## Data Collection
 
@@ -533,7 +619,9 @@ Example:
 ```env
 ENVIRONMENT=development
 DATABASE_URL=postgresql+psycopg2://courtvision_user:courtvision_local_dev@127.0.0.1:5433/courtvision_ml
-MLFLOW_TRACKING_URI=./mlruns
+MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+MLFLOW_BACKEND_STORE_URI=postgresql+psycopg2://courtvision_user:courtvision_local_dev@127.0.0.1:5433/courtvision_mlflow
+MLFLOW_ARTIFACT_ROOT=./mlartifacts
 MODEL_REGISTRY_PATH=models/
 AWS_REGION=us-east-1
 S3_BUCKET=
@@ -621,7 +709,7 @@ Phase 3 validation runs automatically in `load_data.py` before PostgreSQL insert
 - Build player rolling features (previous 5 games, shifted) from `player_game_logs`
 - Build team rolling features from `team_game_logs`
 - Build opponent rolling features (points/FGA allowed) from `team_game_logs`
-- Optional game-state `score_margin` from `play_by_play` (non-blocking)
+- Optional game-state `score_margin` from prior PBP snapshots + `score_margin_missing` (non-blocking)
 - Load `gold_shot_features` via `src/courtvision/data/build_features.py`
 - Phase 4 validation (`validate_all_gold_shot_features`) before gold insert
 - Export time-based train/test Parquet files (`data/processed/features/`)
@@ -631,17 +719,25 @@ Phase 4 is implemented for the 2024-25 season. See [Feature Engineering (Phase 4
 
 ### Phase 5: Baseline Modeling
 
-- Train logistic regression baseline
+- Train logistic regression baseline (`train_baseline.py`)
 - Use time-based train/test split (exported Parquet in `data/processed/features/`)
 - Evaluate AUC, log loss, Brier score, calibration, and accuracy
-- Log results to MLflow
+- Log results to MLflow (`courtvision-baseline`)
+- Write `reports/baseline_model_report.md`
+
+Phase 5 is implemented for the 2024-25 season.
 
 ### Phase 6: Tree-Based Production Candidate
 
-- Train XGBoost or LightGBM model
-- Compare against baseline
-- Create feature importance report
-- Register candidate model
+- Train LightGBM with inner validation hyperparameter search (`train_lgbm.py`)
+- Compare against 31-feature baseline rerun on the same test split
+- Run single-feature leakage audit (`audit_feature_leakage.py`)
+- Fix `score_margin` prior-PBP logic; add `score_margin_missing`
+- Create feature importance report (gain primary, split secondary)
+- Register candidate model (`courtvision-shot-make-model`, `Candidate` alias via `registry.py`)
+- Write `reports/lightgbm_candidate_report.md`
+
+Phase 6 is implemented for the 2024-25 season.
 
 ### Phase 7: Deep Learning and Spatial Modeling
 
@@ -704,7 +800,9 @@ Phase 4 is implemented for the 2024-25 season. See [Feature Engineering (Phase 4
 | Phase 2 — SQL schema & load | Complete (`load_data.py`, `schema.sql`) |
 | Phase 3 — Cleaned data validation | Complete (`schemas.py`, `validate.py`) |
 | Phase 4 — Feature engineering | Complete (`build_features.py`, `gold_shot_features`, train/test export) |
-| Phase 5+ — Modeling & serving | Planned |
+| Phase 5 — Baseline modeling | Complete (`train_baseline.py`, MLflow, baseline report) |
+| Phase 6 — LightGBM candidate | Complete (`train_lgbm.py`, leakage audit, registry, candidate report) |
+| Phase 7+ — Deep learning & serving | Planned |
 
 **Typical local workflow (2024-25):**
 
@@ -715,7 +813,18 @@ $env:PYTHONPATH = "src"
 python -m courtvision.data.collect
 python -m courtvision.data.load_data --season 2024-25
 python -m courtvision.data.build_features --season 2024-25 --load --inspect --export
+.\scripts\start_mlflow.ps1
+python -m courtvision.models.train_baseline
+python -m courtvision.models.audit_feature_leakage
+python -m courtvision.models.train_lgbm --mode search --register-candidate
 ```
+
+**Reports:**
+
+| Report | Path |
+|---|---|
+| Baseline model (Phase 5) | `reports/baseline_model_report.md` |
+| LightGBM candidate (Phase 6) | `reports/lightgbm_candidate_report.md` |
 
 ## Final Project Outcome
 
