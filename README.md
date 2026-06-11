@@ -69,7 +69,7 @@ flowchart TD
 - Train a baseline logistic regression model (Phase 5 — complete)
 - Train a tree-based candidate model using LightGBM (Phase 6 — complete)
 - Run single-feature leakage audits before trusting game-context features
-- Add a PyTorch model for deep learning comparison (Phase 7 — planned)
+- Train PyTorch MLP and GRU models with spatial and sequence features (Phase 7 — complete)
 - Evaluate models using AUC, log loss, Brier score, calibration, and accuracy
 - Track experiments, parameters, metrics, and artifacts with MLflow
 - Register the best model in the MLflow model registry (`courtvision-shot-make-model`, `Candidate` alias)
@@ -108,7 +108,7 @@ flowchart TD
 - scikit-learn
 - XGBoost
 - LightGBM
-- PyTorch, planned
+- PyTorch
 - Matplotlib
 - Plotly
 - FastAPI
@@ -741,10 +741,13 @@ Phase 6 is implemented for the 2024-25 season.
 
 ### Phase 7: Deep Learning and Spatial Modeling
 
-- Train PyTorch model
-- Add spatial features from shot location
-- Compare against tree-based model
-- Document whether deep learning improves results
+**Complete.** PyTorch MLP and GRU models were trained and compared against the LightGBM Candidate. The GRU spatial+sequence model achieved AUC 0.6516, log loss 0.6474, Brier 0.2283, and accuracy 0.6229, earning Challenger status while LightGBM remains the registered Candidate.
+
+- Train MLP tabular and spatial models (`train_mlp.py`)
+- Add spatial features from shot location (`spatial_features.py`)
+- Build prior play-by-play sequences (`sequence_features.py`)
+- Train tabular + sequence GRU (`train_gru.py`)
+- Compare against tree-based model; write `reports/deep_learning_report.md`
 
 ### Phase 8: Expected Shot Value and Player Evaluation
 
@@ -802,7 +805,8 @@ Phase 6 is implemented for the 2024-25 season.
 | Phase 4 — Feature engineering | Complete (`build_features.py`, `gold_shot_features`, train/test export) |
 | Phase 5 — Baseline modeling | Complete (`train_baseline.py`, MLflow, baseline report) |
 | Phase 6 — LightGBM candidate | Complete (`train_lgbm.py`, leakage audit, registry, candidate report) |
-| Phase 7+ — Deep learning & serving | Planned |
+| Phase 7 — Deep learning & spatial modeling | Complete (`train_mlp.py`, `train_gru.py`, deep learning report) |
+| Phase 8+ — EV, serving, monitoring | Planned |
 
 **Typical local workflow (2024-25):**
 
@@ -825,6 +829,7 @@ python -m courtvision.models.train_lgbm --mode search --register-candidate
 |---|---|
 | Baseline model (Phase 5) | `reports/baseline_model_report.md` |
 | LightGBM candidate (Phase 6) | `reports/lightgbm_candidate_report.md` |
+| Deep learning (Phase 7) | `reports/deep_learning_report.md` |
 
 ## Final Project Outcome
 

@@ -22,3 +22,7 @@ nba-api
 pyarrow
 ruff
 pyyaml
+torch
+torchvision
+torchaudio
+joblib
