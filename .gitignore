@@ -238,6 +238,10 @@ data/external/
 !data/metadata/
 !data/metadata/data_collection_metadata.json
 
+# Tracked report tables referenced in README and phase reports
+!reports/tables/
+!reports/tables/*.csv
+
 # ML/model artifacts (not src/courtvision/models/ source code)
 mlruns/
 mlartifacts/

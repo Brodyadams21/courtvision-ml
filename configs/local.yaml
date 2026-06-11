@@ -1,5 +1,6 @@
 environment: local
 database_url: postgresql+psycopg2://courtvision_user:courtvision_local_dev@127.0.0.1:5433/courtvision_ml
-mlflow_tracking_uri: ./mlruns
+mlflow_tracking_uri: http://127.0.0.1:5000
+mlflow_artifact_root: ./mlartifacts
 data_dir: data
-model_dir: models
+model_dir: model_artifacts
