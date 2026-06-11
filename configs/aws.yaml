@@ -5,7 +5,7 @@ s3_prefixes:
   raw: raw/
   processed: processed/
   features: features/
-  models: models/
+  models: model_artifacts/
   reports: reports/
 mlflow_tracking_uri: ""
 database_url: ""

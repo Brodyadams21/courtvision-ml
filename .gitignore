@@ -238,11 +238,11 @@ data/external/
 !data/metadata/
 !data/metadata/data_collection_metadata.json
 
-# Model artifacts
-models/
-artifacts/
-mlartifacts/
+# ML/model artifacts (not src/courtvision/models/ source code)
 mlruns/
+mlartifacts/
+model_artifacts/
+artifacts/models/
 *.pkl
 *.joblib
 *.pt

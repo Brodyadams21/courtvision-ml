@@ -622,7 +622,7 @@ DATABASE_URL=postgresql+psycopg2://courtvision_user:courtvision_local_dev@127.0.
 MLFLOW_TRACKING_URI=http://127.0.0.1:5000
 MLFLOW_BACKEND_STORE_URI=postgresql+psycopg2://courtvision_user:courtvision_local_dev@127.0.0.1:5433/courtvision_mlflow
 MLFLOW_ARTIFACT_ROOT=./mlartifacts
-MODEL_REGISTRY_PATH=models/
+MODEL_REGISTRY_PATH=model_artifacts/
 AWS_REGION=us-east-1
 S3_BUCKET=
 ```
