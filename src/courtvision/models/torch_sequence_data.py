@@ -11,7 +11,7 @@ from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, Dataset
 
 from courtvision.models.sequence_features import EVENT_FEATURE_COLUMNS, SEQUENCE_LENGTH
-from courtvision.models.torch_data import IMPUTER_STRATEGY, FeaturePreprocessor
+from courtvision.models.torch_data import FeaturePreprocessor
 
 FEATURE_SET_SPATIAL_SEQUENCE = "spatial_sequence"
 

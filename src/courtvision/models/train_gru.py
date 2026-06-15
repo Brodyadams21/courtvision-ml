@@ -32,6 +32,11 @@ from courtvision.models.common import (
     save_calibration_curve,
     save_probability_distribution,
 )
+from courtvision.models.pressure_features import (
+    GRU_TABULAR_EXTRA_COLUMNS,
+    attach_shot_pressure_features,
+    gru_tabular_feature_columns,
+)
 from courtvision.models.sequence_features import (
     EVENT_FEATURE_COLUMNS,
     SEQUENCE_LENGTH,
@@ -40,7 +45,7 @@ from courtvision.models.sequence_features import (
     load_play_by_play_for_sequences,
     load_shots_for_sequences,
 )
-from courtvision.models.spatial_features import FEATURE_SET_SPATIAL, mlp_feature_columns, split_mlp_features_target
+from courtvision.models.spatial_features import FEATURE_SET_SPATIAL, split_mlp_features_target
 from courtvision.models.torch_models import (
     DEFAULT_DROPOUT,
     DEFAULT_GRU_HEAD_DIMS,
@@ -483,13 +488,14 @@ def run_default(
     """Train GRU with inner validation for early stopping; evaluate on held-out test."""
     train_config = config or GRUTrainConfig()
     torch_device = resolve_device(device)
-    tabular_feature_columns = mlp_feature_columns(FEATURE_SET_SPATIAL)
+    tabular_feature_columns = gru_tabular_feature_columns()
     set_seed()
 
     print(f"Season: {season}")
     print(f"Model: {MODEL_TYPE}")
     print(f"Feature set: {FEATURE_SET_SPATIAL_SEQUENCE}")
     print(f"Tabular feature count: {len(tabular_feature_columns)}")
+    print(f"Sequence tabular extras: {', '.join(GRU_TABULAR_EXTRA_COLUMNS)}")
     print(f"Sequence length: {SEQUENCE_LENGTH}")
     print(f"Event feature count: {len(EVENT_FEATURE_COLUMNS)}")
 
@@ -510,7 +516,9 @@ def run_default(
     print("Building/loading play-by-play sequences...")
     sequences = sequence_result or load_or_build_sequences(season, engine=engine)
     if not sequences.leakage_check_passed:
-        raise RuntimeError("Sequence leakage check failed: prior action_number >= shot game_event_id")
+        raise RuntimeError(
+            "Sequence leakage check failed: prior action_number >= shot game_event_id"
+        )
 
     print("Building shot_id → sequence map...")
     sequence_map = build_shot_id_sequence_map(sequences.shot_ids, sequences.sequences)
@@ -523,6 +531,11 @@ def run_default(
     inner_sequences = align_sequences_to_shot_ids(inner_shot_ids, sequence_map)
     val_sequences = align_sequences_to_shot_ids(val_shot_ids, sequence_map)
     test_sequences = align_sequences_to_shot_ids(test_shot_ids, sequence_map)
+
+    print("Attaching sequence-derived tabular features...")
+    x_inner = attach_shot_pressure_features(x_inner, inner_train, inner_sequences)
+    x_val = attach_shot_pressure_features(x_val, validation, val_sequences)
+    x_test = attach_shot_pressure_features(x_test, test, test_sequences)
 
     print(f"Aligned inner train sequences: {len(inner_sequences):,}")
     print(f"Aligned validation sequences: {len(val_sequences):,}")

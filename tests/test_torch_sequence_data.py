@@ -36,7 +36,7 @@ def test_build_shot_id_sequence_map_rejects_duplicates() -> None:
 
 
 def test_align_sequences_to_shot_ids_preserves_requested_order() -> None:
-    sequences = np.arange(300, dtype=np.float32).reshape(
+    sequences = np.arange(435, dtype=np.float32).reshape(
         3, SEQUENCE_LENGTH, len(EVENT_FEATURE_COLUMNS)
     )
     shot_ids = np.array([10, 20, 30], dtype=np.int64)

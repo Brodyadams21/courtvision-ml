@@ -26,20 +26,29 @@ EVENT_FEATURE_COLUMNS: tuple[str, ...] = (
     "seconds_remaining_period",
     "seconds_remaining_game",
     "seconds_since_next_event_or_shot",
+    "event_seconds_before_shot",
     "same_team_as_shooter",
     "event_team_is_home",
     "score_margin_before_event",
+    "event_score_change",
+    "event_team_is_opponent",
+    "event_likely_possession_change",
+    "event_same_possession_as_shot",
     "is_field_goal",
     "is_made_shot_event",
     "is_missed_shot_event",
     "is_rebound",
+    "is_offensive_rebound",
+    "is_defensive_rebound",
     "is_turnover",
+    "is_steal",
     "is_foul",
     "is_free_throw",
     "is_timeout",
     "is_substitution",
     "is_violation",
     "is_jump_ball",
+    "is_block",
     "is_unknown_event",
 )
 
@@ -48,13 +57,17 @@ EVENT_TYPE_FLAG_COLUMNS: tuple[str, ...] = (
     "is_made_shot_event",
     "is_missed_shot_event",
     "is_rebound",
+    "is_offensive_rebound",
+    "is_defensive_rebound",
     "is_turnover",
+    "is_steal",
     "is_foul",
     "is_free_throw",
     "is_timeout",
     "is_substitution",
     "is_violation",
     "is_jump_ball",
+    "is_block",
     "is_unknown_event",
 )
 
@@ -178,13 +191,21 @@ def classify_event_type_flags(
         or (bool(is_field_goal) and shot_result_value == "missed")
     )
     is_rebound = float("REBOUND" in label)
+    is_offensive_rebound = float(
+        "OFFENSIVE REBOUND" in label or (is_rebound and "OFFENSIVE" in label)
+    )
+    is_defensive_rebound = float(
+        is_rebound and not is_offensive_rebound and ("DEFENSIVE" in label or "REBOUND" in label)
+    )
     is_turnover = float("TURNOVER" in label)
+    is_steal = float("STEAL" in label)
     is_foul = float("FOUL" in label and "FREE THROW" not in label)
     is_free_throw = float("FREE THROW" in label)
     is_timeout = float("TIMEOUT" in label)
     is_substitution = float("SUBSTITUTION" in label or "SUB:" in label)
     is_violation = float("VIOLATION" in label)
     is_jump_ball = float("JUMP BALL" in label)
+    is_block = float("BLOCK" in label)
 
     is_fg = float(bool(is_field_goal) or is_made_shot or is_missed_shot)
     known = (
@@ -192,13 +213,17 @@ def classify_event_type_flags(
         or is_made_shot
         or is_missed_shot
         or is_rebound
+        or is_offensive_rebound
+        or is_defensive_rebound
         or is_turnover
+        or is_steal
         or is_foul
         or is_free_throw
         or is_timeout
         or is_substitution
         or is_violation
         or is_jump_ball
+        or is_block
     )
     is_unknown = float(not known)
 
@@ -207,13 +232,17 @@ def classify_event_type_flags(
         "is_made_shot_event": is_made_shot,
         "is_missed_shot_event": is_missed_shot,
         "is_rebound": is_rebound,
+        "is_offensive_rebound": is_offensive_rebound,
+        "is_defensive_rebound": is_defensive_rebound,
         "is_turnover": is_turnover,
+        "is_steal": is_steal,
         "is_foul": is_foul,
         "is_free_throw": is_free_throw,
         "is_timeout": is_timeout,
         "is_substitution": is_substitution,
         "is_violation": is_violation,
         "is_jump_ball": is_jump_ball,
+        "is_block": is_block,
         "is_unknown_event": is_unknown,
     }
 
@@ -290,6 +319,54 @@ def _series_scalar(event: pd.Series, column: str) -> object:
     return value
 
 
+def event_score_change(
+    prior_score_home: float,
+    prior_score_away: float,
+    score_home: float,
+    score_away: float,
+) -> float:
+    """Points scored on the event: total score after minus total score before."""
+    score_before = float(prior_score_home) + float(prior_score_away)
+    score_after = float(score_home) + float(score_away)
+    return score_after - score_before
+
+
+def event_likely_possession_change(event: pd.Series) -> float:
+    """Rough signal that the event probably ended or changed possession."""
+    return float(
+        float(_series_scalar(event, "is_made_shot_event")) == 1.0
+        or float(_series_scalar(event, "is_defensive_rebound")) == 1.0
+        or float(_series_scalar(event, "is_turnover")) == 1.0
+        or float(_series_scalar(event, "is_steal")) == 1.0
+    )
+
+
+def event_same_possession_as_shot(
+    *,
+    event_index: int,
+    num_prior: int,
+    shooter_team_id: int,
+    event_team_id: object,
+    possession_change_by_index: list[bool],
+) -> float:
+    """Rough same-possession signal from this prior event through the upcoming shot."""
+    if pd.isna(event_team_id) or int(event_team_id) != int(shooter_team_id):
+        return 0.0
+    for later_index in range(event_index, num_prior):
+        if possession_change_by_index[later_index]:
+            return 0.0
+    return 1.0
+
+
+def event_seconds_before_shot(
+    event_seconds_remaining_game: float,
+    shot_seconds_remaining_game: float,
+) -> float:
+    """Seconds of game time from a prior event to the shot (clock counts down)."""
+    delta = float(shot_seconds_remaining_game) - float(event_seconds_remaining_game)
+    return max(0.0, delta)
+
+
 def _encode_event_vector(
     event: pd.Series,
     *,
@@ -297,10 +374,17 @@ def _encode_event_vector(
     shooter_team_id: int,
     home_team_id: int,
     seconds_since_next_event_or_shot: float,
+    event_seconds_before_shot_value: float,
+    event_same_possession: float,
 ) -> np.ndarray:
     event_team_id = _series_scalar(event, "team_id")
     same_team = (
         float(int(event_team_id) == int(shooter_team_id))
+        if pd.notna(event_team_id)
+        else 0.0
+    )
+    event_team_is_opponent = (
+        float(int(event_team_id) != int(shooter_team_id))
         if pd.notna(event_team_id)
         else 0.0
     )
@@ -313,6 +397,12 @@ def _encode_event_vector(
         shooter_team_id=shooter_team_id,
         home_team_id=home_team_id,
     )
+    score_change = event_score_change(
+        _series_scalar(event, "prior_score_home"),
+        _series_scalar(event, "prior_score_away"),
+        _series_scalar(event, "score_home"),
+        _series_scalar(event, "score_away"),
+    )
 
     values: dict[str, float] = {
         "event_order_from_shot": event_order_from_shot,
@@ -320,12 +410,18 @@ def _encode_event_vector(
         "seconds_remaining_period": float(_series_scalar(event, "seconds_remaining_period")),
         "seconds_remaining_game": float(_series_scalar(event, "seconds_remaining_game")),
         "seconds_since_next_event_or_shot": float(seconds_since_next_event_or_shot),
+        "event_seconds_before_shot": float(event_seconds_before_shot_value),
         "same_team_as_shooter": same_team,
         "event_team_is_home": event_team_is_home,
         "score_margin_before_event": score_margin,
+        "event_score_change": score_change,
+        "event_team_is_opponent": event_team_is_opponent,
     }
     for column in EVENT_TYPE_FLAG_COLUMNS:
         values[column] = float(_series_scalar(event, column))
+
+    values["event_likely_possession_change"] = event_likely_possession_change(event)
+    values["event_same_possession_as_shot"] = event_same_possession
 
     return np.asarray([values[column] for column in EVENT_FEATURE_COLUMNS], dtype=np.float32)
 
@@ -363,6 +459,10 @@ def _build_sequences_for_game(
 
         sequence = np.zeros((SEQUENCE_LENGTH, feature_count), dtype=np.float32)
         shot_srg = float(shot_seconds_remaining_game[shot_index])
+        possession_change_by_index = [
+            bool(event_likely_possession_change(prior_events.iloc[index]) > 0.0)
+            for index in range(num_prior)
+        ]
 
         for slot_index in range(SEQUENCE_LENGTH):
             if slot_index < pad_count:
@@ -378,6 +478,10 @@ def _build_sequences_for_game(
             seconds_since_next = float(event["seconds_remaining_game"]) - next_srg
             if seconds_since_next < 0.0:
                 seconds_since_next = 0.0
+            seconds_before_shot = event_seconds_before_shot(
+                float(event["seconds_remaining_game"]),
+                shot_srg,
+            )
 
             sequence[slot_index] = _encode_event_vector(
                 event,
@@ -385,6 +489,14 @@ def _build_sequences_for_game(
                 shooter_team_id=int(shot.team_id),
                 home_team_id=int(shot.home_team_id),
                 seconds_since_next_event_or_shot=seconds_since_next,
+                event_seconds_before_shot_value=seconds_before_shot,
+                event_same_possession=event_same_possession_as_shot(
+                    event_index=event_index,
+                    num_prior=num_prior,
+                    shooter_team_id=int(shot.team_id),
+                    event_team_id=_series_scalar(event, "team_id"),
+                    possession_change_by_index=possession_change_by_index,
+                ),
             )
 
         sequences.append(sequence)

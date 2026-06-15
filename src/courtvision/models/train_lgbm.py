@@ -427,7 +427,7 @@ def run_default(
     """Train default LightGBM on full train parquet; evaluate on held-out test."""
     paths = processed_train_test_paths(season, output_dir=processed_dir)
     print(f"Season: {season}")
-    print(f"Mode: default")
+    print("Mode: default")
     print(f"Model: {MODEL_TYPE}")
     print(f"Train path: {paths['train']}")
     print(f"Test path:  {paths['test']}")
@@ -507,7 +507,8 @@ def run_search(
         inner_train_fraction=inner_train_fraction,
     )
     print(
-        f"\nInner split: train {split_meta['train_games']} games ({split_meta['train_rows']:,} rows) | "
+        f"\nInner split: train {split_meta['train_games']} games "
+        f"({split_meta['train_rows']:,} rows) | "
         f"validation {split_meta['test_games']} games ({split_meta['test_rows']:,} rows)"
     )
 
@@ -565,7 +566,11 @@ def run_search(
 
     best = min(trial_results, key=lambda row: row["validation_log_loss"])
     print("\n=== Search summary (sorted by validation log loss) ===")
-    print(f"{'rank':<5} {'idx':<4} {'val_log_loss':>14} {'val_auc':>10} {'test_log_loss':>14} {'leaves':>7} {'lr':>6}")
+    header = (
+        f"{'rank':<5} {'idx':<4} {'val_log_loss':>14} {'val_auc':>10} "
+        f"{'test_log_loss':>14} {'leaves':>7} {'lr':>6}"
+    )
+    print(header)
     print("-" * 72)
     for rank, row in enumerate(
         sorted(trial_results, key=lambda item: item["validation_log_loss"]),
@@ -627,7 +632,9 @@ def run_search(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Train LightGBM on shot make features (default or small hyperparameter search).",
+        description=(
+            "Train LightGBM on shot make features (default or small hyperparameter search)."
+        ),
     )
     parser.add_argument("--season", default=DEFAULT_SEASON, help="Season label (e.g. 2024-25)")
     parser.add_argument(

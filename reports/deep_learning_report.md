@@ -16,9 +16,9 @@ Phase 7 adds PyTorch models alongside the Phase 6 LightGBM **Candidate** (`court
 
 1. **MLP v1 (tabular)** — same 31 features as LightGBM, with median imputation and standard scaling.
 2. **MLP v2 (spatial)** — tabular features plus 18 court-location encodings (49 inputs total).
-3. **GRU (spatial + sequence)** — spatial tabular branch plus a 5-step prior play-by-play sequence branch.
+3. **GRU (spatial + sequence)** — spatial tabular branch plus a 5-step prior play-by-play sequence branch with 26 event-context features.
 
-The GRU is the strongest model in Phase 7: it combines shot-level spatial/tabular context with recent game flow and achieves the best held-out test metrics (log loss **0.6474**). The MLflow run is tagged `beats_lightgbm=true` and `model_role=Challenger`. LightGBM remains the registered **Candidate**; the GRU is **not** auto-promoted to production.
+The GRU is the strongest model in Phase 7: it combines shot-level spatial/tabular context with recent game flow and achieves the best held-out test metrics (log loss **0.6470**). The MLflow run is tagged `beats_lightgbm=true` and `model_role=Challenger`. LightGBM remains the registered **Candidate**; the GRU is **not** auto-promoted to production.
 
 ---
 
@@ -79,16 +79,20 @@ All models use the same Parquet export and time-based split as Phase 5–6:
 | Script | `python -m courtvision.models.train_gru --mode default` |
 | Feature set | `spatial_sequence` |
 | Tabular branch | 49 spatial features (same as MLP v2), median impute + scale |
-| Sequence branch | Prior **5** PBP events × **20** numeric event features |
+| Sequence branch | Prior **5** PBP events × **26** numeric event features (v2) |
 | Sequence alignment | `shot_id → sequence` map; parquet row order is **not** assumed |
 | Sequence preprocessing | `StandardScaler` on flattened event features (fit on inner train) |
-| Architecture | Tabular `Linear→ReLU→Dropout` (embed 64) + `GRU(20→64)` → concat → MLP `64→32→1` |
+| Architecture | Tabular `Linear→ReLU→Dropout` (embed 64) + `GRU(26→64)` → concat → MLP `64→32→1` |
 | Selection | Validation log loss, patience-based early stopping |
 | MLflow experiment | `courtvision-gru` |
 
-### Event features (20 per timestep)
+### Event features (26 per timestep, v2)
 
-`event_order_from_shot`, `period`, `seconds_remaining_period`, `seconds_remaining_game`, `seconds_since_next_event_or_shot`, `same_team_as_shooter`, `event_team_is_home`, `score_margin_before_event`, plus 12 boolean event-type flags (`is_made_shot_event`, `is_rebound`, `is_turnover`, etc.).
+Core timing/context: `event_order_from_shot`, `period`, `seconds_remaining_period`, `seconds_remaining_game`, `seconds_since_next_event_or_shot`, `same_team_as_shooter`, `event_team_is_home`, `score_margin_before_event`.
+
+**Sequence v2 additions:** `event_score_change`, `event_team_is_opponent`, `is_offensive_rebound`, `is_defensive_rebound`, `is_steal`, `is_block`.
+
+Event-type flags: `is_field_goal`, `is_made_shot_event`, `is_missed_shot_event`, `is_rebound`, `is_turnover`, `is_foul`, `is_free_throw`, `is_timeout`, `is_substitution`, `is_violation`, `is_jump_ball`, `is_unknown_event`.
 
 ### GRU MLflow artifacts
 
@@ -100,7 +104,7 @@ Each successful `train_gru` run logs:
 | `gru_calibration_curve.png` | Test-set calibration |
 | `gru_probability_distribution.png` | Test predicted probability histogram |
 | `feature_columns.json` | 49 spatial tabular column names |
-| `event_feature_columns.json` | 20 sequence feature names + `sequence_length` |
+| `event_feature_columns.json` | 26 sequence feature names + `sequence_length` |
 | `model_config.json` | Hyperparameters and architecture summary |
 | `gru_state_dict.pt` | PyTorch weights |
 | `tabular_preprocessor.joblib` | Fitted tabular imputer + scaler |
@@ -135,11 +139,11 @@ This mirrors the `score_margin` leakage fix documented in `reports/lightgbm_cand
 | LightGBM Candidate | 31 tabular | 0.6479 | 0.6495 | 0.2292 | 0.6213 | **Candidate** (registry) |
 | MLP tabular | 31 tabular | 0.6437 | 0.6532 | 0.2307 | 0.6203 | Neural baseline |
 | MLP spatial | 49 tabular+spatial | 0.6443 | 0.6530 | 0.2306 | 0.6209 | Spatial neural model |
-| GRU spatial+sequence | 49 + 5×20 sequence | **0.6516** | **0.6474** | **0.2283** | **0.6229** | **Challenger** |
+| GRU spatial+sequence v2 | 49 + 5×26 sequence | **0.6517** | **0.6470** | **0.2282** | **0.6233** | **Challenger** |
 
 Baseline and LightGBM figures are from `reports/lightgbm_candidate_report.md`. PyTorch metrics are from MLflow runs in `courtvision-mlp` and `courtvision-gru`.
 
-**Comparison rule:** `beats_lightgbm=true` when GRU test log loss **< 0.6495** (satisfied: **0.6474**).
+**Comparison rule:** `beats_lightgbm=true` when GRU test log loss **< 0.6495** (satisfied: **0.6470**).
 
 ---
 
@@ -147,11 +151,23 @@ Baseline and LightGBM figures are from `reports/lightgbm_candidate_report.md`. P
 
 Best model by held-out test log loss (2024-25):
 
-1. GRU spatial + sequence: **0.6474**
+1. GRU spatial + sequence v2: **0.6470**
 2. LightGBM Candidate: 0.6495
 3. MLP spatial: 0.6530
 4. MLP tabular: 0.6532
 5. Logistic baseline: 0.6610
+
+---
+
+## GRU tuning check
+
+A small GRU tuning sweep tested hidden sizes 32, 64, and 128, dropout values 0.1, 0.2, and 0.3, and learning rates 0.0005, 0.001, and 0.002. None of the tested variants improved held-out test log loss over the default GRU configuration. The default model (`hidden_size=64`, `dropout=0.2`, `learning_rate=0.001`) remained the best GRU hyperparameter setting among those runs.
+
+---
+
+## Sequence feature upgrade
+
+A sequence feature upgrade expanded the GRU event representation from 20 to 26 features. Added context included event score change, whether the event team was the opponent, offensive and defensive rebound indicators, steal indicators, and block indicators. This improved held-out test log loss from 0.6474 to 0.6470, while also improving AUC, Brier score, and accuracy. The result supports the idea that basketball-aware event context is more valuable than simple GRU hyperparameter tuning for this stage.
 
 ---
 

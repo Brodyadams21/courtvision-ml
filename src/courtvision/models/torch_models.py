@@ -117,7 +117,11 @@ class ShotMakeGRU(nn.Module):
         head_layers.append(nn.Linear(in_dim, 1))
         self._head = nn.Sequential(*head_layers)
 
-    def forward(self, tabular_features: torch.Tensor, sequence_features: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        tabular_features: torch.Tensor,
+        sequence_features: torch.Tensor,
+    ) -> torch.Tensor:
         tabular_embedding = self._tabular_branch(tabular_features)
         _sequence_output, hidden_state = self._gru(sequence_features)
         gru_embedding = hidden_state.squeeze(0)

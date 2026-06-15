@@ -28,7 +28,12 @@ from courtvision.models.spatial_features import (
     split_mlp_features_target,
 )
 from courtvision.models.torch_data import DataLoaderBundle, prepare_dataloaders
-from courtvision.models.torch_models import DEFAULT_DROPOUT, DEFAULT_HIDDEN_DIMS, ShotMakeMLP, build_shot_make_mlp
+from courtvision.models.torch_models import (
+    DEFAULT_DROPOUT,
+    DEFAULT_HIDDEN_DIMS,
+    ShotMakeMLP,
+    build_shot_make_mlp,
+)
 
 MODEL_TYPE = "pytorch_mlp"
 MLFLOW_EXPERIMENT = "courtvision-mlp"
