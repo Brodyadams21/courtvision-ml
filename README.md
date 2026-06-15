@@ -751,11 +751,19 @@ Phase 6 is implemented for the 2024-25 season.
 
 ### Phase 8: Expected Shot Value and Player Evaluation
 
-- Generate predictions for all evaluation shots
-- Calculate expected shot value
-- Calculate points above expected
-- Build player evaluation summaries
-- Write basketball-facing insights
+**Complete.** Phase 8 uses the registered LightGBM **Candidate** model for reproducible expected-value reporting. The GRU v3 remains a stronger **Challenger+** model for future promotion after calibration and inference packaging.
+
+- Score evaluation shots and compute expected shot value (`predict_shots.py`)
+- Build player, team, zone, and monthly trend summaries (`summaries.py`)
+- Write basketball-facing insights (`write_insights.py`)
+
+```powershell
+python -m courtvision.evaluation.predict_shots --season 2024-25
+python -m courtvision.evaluation.summaries --season 2024-25
+python -m courtvision.evaluation.write_insights --season 2024-25
+```
+
+**Report:** `reports/basketball_insights.md`
 
 ### Phase 9: Cloud-Assisted Training Path
 
@@ -806,7 +814,8 @@ Phase 6 is implemented for the 2024-25 season.
 | Phase 5 — Baseline modeling | Complete (`train_baseline.py`, MLflow, baseline report) |
 | Phase 6 — LightGBM candidate | Complete (`train_lgbm.py`, leakage audit, registry, candidate report) |
 | Phase 7 — Deep learning & spatial modeling | Complete (`train_mlp.py`, `train_gru.py`, deep learning report) |
-| Phase 8+ — EV, serving, monitoring | Planned |
+| Phase 8 — Expected shot value & player evaluation | Complete (`predict_shots.py`, `summaries.py`, `write_insights.py`, basketball insights) |
+| Phase 9+ — Cloud, serving, monitoring | Planned |
 
 **Typical local workflow (2024-25):**
 
@@ -830,7 +839,10 @@ python -m courtvision.models.train_lgbm --mode search --register-candidate
 | Baseline model (Phase 5) | `reports/baseline_model_report.md` |
 | LightGBM candidate (Phase 6) | `reports/lightgbm_candidate_report.md` |
 | Deep learning (Phase 7) | `reports/deep_learning_report.md` |
+| Basketball insights (Phase 8) | `reports/basketball_insights.md` |
 
 ## Final Project Outcome
 
 The finished project should demonstrate the ability to build a production-style basketball machine learning platform that moves beyond a simple notebook. The goal is to show end-to-end ownership across data pipelines, machine learning, model evaluation, model serving, dashboard delivery, monitoring, documentation, and basketball decision support.
+
+Phase 8 expected-value reporting intentionally scores shots with the registered LightGBM **Candidate** for reproducible, registry-backed insights. The GRU v3 is the stronger **Challenger+** model on raw test metrics but is not yet promoted; calibration review and inference packaging come before using it for production-style EV reporting.
