@@ -10,6 +10,7 @@ import pandas as pd
 from courtvision.data.collect import DEFAULT_SEASON
 from courtvision.data.load_data import PROJECT_ROOT
 from courtvision.evaluation.predict_shots import (
+    MODEL_TYPE_CANDIDATE,
     SHOT_PREDICTION_CORE_COLUMNS,
     SHOT_PREDICTION_OPTIONAL_METADATA_COLUMNS,
     shot_predictions_output_path,
@@ -239,7 +240,9 @@ def run_summaries(
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Load shot predictions and write player, team, zone, and trend evaluation CSVs."""
     predictions_file = predictions_path or shot_predictions_output_path(
-        season, tables_dir=tables_dir
+        season,
+        model_type=MODEL_TYPE_CANDIDATE,
+        tables_dir=tables_dir,
     )
     predictions = load_shot_predictions(predictions_file)
     print(f"Loaded shot predictions: {len(predictions):,}")
@@ -281,7 +284,10 @@ def parse_args() -> argparse.Namespace:
         "--predictions-path",
         type=Path,
         default=None,
-        help="Input shot predictions CSV (default: reports/tables/shot_predictions_<season>.csv)",
+        help=(
+            "Input shot predictions CSV "
+            "(default: reports/tables/shot_predictions_<season>_candidate.csv)"
+        ),
     )
     return parser.parse_args()
 

@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from courtvision.evaluation.write_insights import (
+    DEFAULT_MODEL_LABEL,
     SummaryTables,
     build_insights_report,
     finding_top_players_points_above_expected_per_100,
@@ -221,6 +222,29 @@ def test_build_insights_report_includes_required_sections() -> None:
     assert "Best and worst zones by points above expected" in report
     assert "Player monthly trend" in report
     assert "## Limitations" in report
+    assert f"**Model:** {DEFAULT_MODEL_LABEL}" in report
+
+
+def test_build_insights_report_uses_custom_model_metadata() -> None:
+    run_id = "40fe1b8851f7423f831a77fce30b770d"
+    model_label = "GRU spatial_sequence v3 (Challenger+)"
+    model_detail = f"GRU run ID: {run_id}"
+
+    report = build_insights_report(
+        _summary_tables(),
+        season="2024-25",
+        player_names={1: "Player One", 2: "Player Two"},
+        team_abbreviations={100: "AAA", 200: "BBB"},
+        report_date=__import__("datetime").date(2026, 6, 15),
+        evaluation_shots=290,
+        model_label=model_label,
+        model_detail=model_detail,
+    )
+
+    assert f"**Model:** {model_label}" in report
+    assert f"**GRU run ID:** {run_id}" in report
+    assert DEFAULT_MODEL_LABEL not in report
+    assert f"probabilities from {model_label}" in report
 
 
 def test_load_summary_tables_reads_csvs(tmp_path: Path) -> None:

@@ -26,6 +26,7 @@ from courtvision.evaluation.summaries import (
 from courtvision.models.registry import CANDIDATE_ALIAS, REGISTERED_MODEL_NAME
 
 DEFAULT_INSIGHTS_PATH = PROJECT_ROOT / "reports" / "basketball_insights.md"
+DEFAULT_MODEL_LABEL = f"{REGISTERED_MODEL_NAME} ({CANDIDATE_ALIAS})"
 TOP_N_DEFAULT = 5
 MIN_PLAYER_ATTEMPTS_PER_MONTH_FOR_TREND = 40
 
@@ -142,6 +143,14 @@ def _format_rate(value: float) -> str:
 
 def _format_points(value: float) -> str:
     return f"{value:+.1f}"
+
+
+def _format_metadata_detail_line(model_detail: str) -> str:
+    """Format an optional metadata line as ``**Key:** value`` when possible."""
+    if ": " in model_detail:
+        key, value = model_detail.split(": ", 1)
+        return f"**{key}:** {value}"
+    return model_detail
 
 
 def finding_top_players_total_points_above_expected(
@@ -362,24 +371,24 @@ def limitations_section(
     *,
     season: str,
     evaluation_shots: int,
+    model_label: str = DEFAULT_MODEL_LABEL,
     min_player_attempts: int = MIN_PLAYER_ATTEMPTS_FOR_INSIGHTS,
     min_zone_attempts: int = MIN_ZONE_ATTEMPTS_FOR_INSIGHTS,
 ) -> str:
     """Return the report limitations section."""
-    model_ref = f"`{REGISTERED_MODEL_NAME}` (`{CANDIDATE_ALIAS}`)"
     return (
         "## Limitations\n\n"
         "- **Held-out test split only:** Findings come from the latest ~20% of "
         f"{season} games by date, not the full season.\n"
-        "- **Model-driven expectation:** Expected shot value uses raw LightGBM make "
-        f"probabilities from {model_ref} without a separate calibration pass.\n"
+        "- **Model-driven expectation:** Expected shot value uses raw make "
+        f"probabilities from {model_label} without a separate calibration pass.\n"
         "- **Sample-size filters:** Player insights require at least "
         f"{min_player_attempts} evaluation shots; zone insights require at least "
         f"{min_zone_attempts}. Tiny zones (for example backcourt heaves) are excluded "
         "from zone rankings.\n"
-        "- **Feature scope:** The registered LightGBM Candidate uses shot geometry, "
-        "game context, and rolling player/team form — not matchup-specific scouting, "
-        "player tracking, lineup, or defender-distance features.\n"
+        "- **Feature scope:** Scoring features include shot geometry, game context, "
+        "and rolling player/team form — not matchup-specific scouting, player "
+        "tracking, lineup, or defender-distance features.\n"
         "- **Evaluation volume:** This report is based on "
         f"{evaluation_shots:,} evaluation shots for season `{season}`.\n"
     )
@@ -393,6 +402,8 @@ def build_insights_report(
     team_abbreviations: dict[int, str] | None = None,
     report_date: date | None = None,
     evaluation_shots: int | None = None,
+    model_label: str = DEFAULT_MODEL_LABEL,
+    model_detail: str | None = None,
 ) -> str:
     """Build the basketball insights markdown report from summary tables."""
     names = player_names or {}
@@ -421,12 +432,17 @@ def build_insights_report(
         for index, finding in enumerate(findings, start=1)
     )
 
+    model_metadata_lines = [f"**Model:** {model_label}"]
+    if model_detail:
+        model_metadata_lines.append(_format_metadata_detail_line(model_detail))
+    model_metadata = "  \n".join(model_metadata_lines)
+
     return f"""# Basketball Insights — Expected Shot Value ({season})
 
 **Project:** CourtVision ML  
 **Phase:** 8 — Expected Shot Value and Player Evaluation  
 **Season:** {season}  
-**Model:** `{REGISTERED_MODEL_NAME}` (`{CANDIDATE_ALIAS}`)  
+{model_metadata}  
 **Report date:** {generated_on.isoformat()}  
 **Evaluation shots:** {shot_count:,}
 
@@ -446,7 +462,7 @@ more than the model anticipated given shot difficulty and context.
 
 ---
 
-{limitations_section(season=season, evaluation_shots=shot_count)}
+{limitations_section(season=season, evaluation_shots=shot_count, model_label=model_label)}
 """
 
 
@@ -466,6 +482,8 @@ def run_write_insights(
     tables_dir: Path | None = None,
     output_path: Path | None = None,
     data_dir: Path = DEFAULT_DATA_DIR,
+    model_label: str = DEFAULT_MODEL_LABEL,
+    model_detail: str | None = None,
 ) -> Path:
     """Load summary tables and write the basketball insights markdown report."""
     tables = load_summary_tables(season, tables_dir=tables_dir)
@@ -477,6 +495,8 @@ def run_write_insights(
         season=season,
         player_names=load_player_name_map(season, data_dir=data_dir),
         evaluation_shots=evaluation_shots,
+        model_label=model_label,
+        model_detail=model_detail,
     )
     destination = output_path or basketball_insights_output_path(season)
     write_insights_report(report, destination)
@@ -506,6 +526,19 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Output markdown path (default: reports/basketball_insights.md)",
     )
+    parser.add_argument(
+        "--model-label",
+        default=DEFAULT_MODEL_LABEL,
+        help=(
+            "Model label for report metadata "
+            f"(default: {DEFAULT_MODEL_LABEL})"
+        ),
+    )
+    parser.add_argument(
+        "--model-detail",
+        default=None,
+        help="Optional extra model metadata line (e.g. 'GRU run ID: <run_id>')",
+    )
     return parser.parse_args()
 
 
@@ -515,6 +548,8 @@ def main() -> None:
         args.season,
         tables_dir=args.tables_dir,
         output_path=args.output_path,
+        model_label=args.model_label,
+        model_detail=args.model_detail,
     )
 
 

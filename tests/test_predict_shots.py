@@ -10,12 +10,14 @@ import pandas as pd
 import pytest
 
 from courtvision.evaluation.predict_shots import (
+    MODEL_TYPE_GRU,
     SHOT_PREDICTION_CORE_COLUMNS,
     SHOT_PREDICTION_OPTIONAL_METADATA_COLUMNS,
     build_shot_predictions_table,
     predict_make_probabilities,
     run_predict_shots,
     save_shot_predictions_csv,
+    shot_predictions_output_path,
 )
 from courtvision.models.common import FEATURE_COLUMNS
 
@@ -102,11 +104,47 @@ def test_run_predict_shots_prints_checkpoint_lines(
     model.predict_proba.return_value = np.array([[0.60, 0.40]])
     load_candidate_model.return_value = model
 
-    output_path = tmp_path / "shot_predictions_2024-25.csv"
+    output_path = tmp_path / "shot_predictions_2024-25_candidate.csv"
     run_predict_shots("2024-25", output_path=output_path)
 
     captured = capsys.readouterr().out
     assert "Loaded evaluation shots: 1" in captured
     assert "Generated predictions: 1" in captured
-    assert captured.endswith("shot_predictions_2024-25.csv\n")
+    assert captured.endswith("shot_predictions_2024-25_candidate.csv\n")
+    assert output_path.is_file()
+
+
+def test_shot_predictions_output_path_includes_model_type(tmp_path: Path) -> None:
+    path = shot_predictions_output_path("2024-25", model_type=MODEL_TYPE_GRU, tables_dir=tmp_path)
+
+    assert path == tmp_path / "shot_predictions_2024-25_gru.csv"
+
+
+@patch("courtvision.evaluation.predict_gru.score_evaluation_shots_with_gru")
+@patch("courtvision.evaluation.predict_shots.load_evaluation_shots")
+def test_run_predict_shots_gru_path_prints_checkpoint_lines(
+    load_evaluation_shots: MagicMock,
+    score_evaluation_shots_with_gru: MagicMock,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    shots = _evaluation_shots_frame()
+    load_evaluation_shots.return_value = shots
+    score_evaluation_shots_with_gru.return_value = np.array([0.55])
+
+    run_id = "40fe1b8851f7423f831a77fce30b770d"
+    output_path = tmp_path / "shot_predictions_2024-25_gru.csv"
+    run_predict_shots(
+        "2024-25",
+        model_type=MODEL_TYPE_GRU,
+        gru_run_id=run_id,
+        output_path=output_path,
+    )
+
+    captured = capsys.readouterr().out
+    assert "Loaded evaluation shots: 1" in captured
+    assert f"Using GRU model from run {run_id}" in captured
+    assert "Generated predictions: 1" in captured
+    assert captured.endswith("shot_predictions_2024-25_gru.csv\n")
+    score_evaluation_shots_with_gru.assert_called_once()
     assert output_path.is_file()

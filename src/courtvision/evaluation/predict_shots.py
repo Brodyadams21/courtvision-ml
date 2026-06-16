@@ -22,6 +22,10 @@ from courtvision.evaluation.expected_value import compute_expected_value_arrays
 from courtvision.models.common import DEFAULT_TABLES_DIR, FEATURE_COLUMNS
 from courtvision.models.registry import CANDIDATE_ALIAS, REGISTERED_MODEL_NAME
 
+MODEL_TYPE_CANDIDATE = "candidate"
+MODEL_TYPE_GRU = "gru"
+SUPPORTED_MODEL_TYPES: tuple[str, ...] = (MODEL_TYPE_CANDIDATE, MODEL_TYPE_GRU)
+
 SHOT_PREDICTION_CORE_COLUMNS: tuple[str, ...] = (
     "shot_id",
     "game_id",
@@ -78,11 +82,16 @@ def evaluation_shots_path(
 def shot_predictions_output_path(
     season: str,
     *,
+    model_type: str = MODEL_TYPE_CANDIDATE,
     tables_dir: Path | None = None,
 ) -> Path:
     """Default CSV path for shot-level prediction output."""
+    if model_type not in SUPPORTED_MODEL_TYPES:
+        supported = ", ".join(SUPPORTED_MODEL_TYPES)
+        raise ValueError(f"Unsupported model_type {model_type!r}; expected one of: {supported}")
+
     directory = tables_dir or DEFAULT_TABLES_DIR
-    return directory / f"shot_predictions_{season}.csv"
+    return directory / f"shot_predictions_{season}_{model_type}.csv"
 
 
 def load_evaluation_shots(
@@ -177,24 +186,51 @@ def save_shot_predictions_csv(
 def run_predict_shots(
     season: str = DEFAULT_SEASON,
     *,
+    model_type: str = MODEL_TYPE_CANDIDATE,
+    gru_run_id: str | None = None,
     processed_dir: Path | None = None,
     output_path: Path | None = None,
     registered_model_name: str = REGISTERED_MODEL_NAME,
     alias: str = CANDIDATE_ALIAS,
+    gru_cache_root: Path | None = None,
+    gru_force_download: bool = False,
+    gru_device: str | None = None,
+    gru_batch_size: int | None = None,
 ) -> pd.DataFrame:
-    """Load evaluation shots, score with the Candidate model, and save shot predictions."""
+    """Load evaluation shots, score with the selected model, and save shot predictions."""
+    if model_type not in SUPPORTED_MODEL_TYPES:
+        supported = ", ".join(SUPPORTED_MODEL_TYPES)
+        raise ValueError(f"Unsupported model_type {model_type!r}; expected one of: {supported}")
+
     shots = load_evaluation_shots(season, processed_dir=processed_dir)
     print(f"Loaded evaluation shots: {len(shots):,}")
 
-    model = load_candidate_model(
-        registered_model_name=registered_model_name,
-        alias=alias,
-    )
-    probabilities = predict_make_probabilities(model, shots)
+    if model_type == MODEL_TYPE_CANDIDATE:
+        model = load_candidate_model(
+            registered_model_name=registered_model_name,
+            alias=alias,
+        )
+        probabilities = predict_make_probabilities(model, shots)
+    else:
+        if not gru_run_id:
+            raise ValueError("--gru-run-id is required when --model-type gru")
+        from courtvision.evaluation.predict_gru import score_evaluation_shots_with_gru
+
+        print(f"Using GRU model from run {gru_run_id}")
+        probabilities = score_evaluation_shots_with_gru(
+            shots,
+            gru_run_id,
+            season=season,
+            cache_root=gru_cache_root,
+            force_download=gru_force_download,
+            device=gru_device,
+            batch_size=gru_batch_size,
+        )
+
     print(f"Generated predictions: {len(probabilities):,}")
 
     predictions = build_shot_predictions_table(shots, probabilities)
-    destination = output_path or shot_predictions_output_path(season)
+    destination = output_path or shot_predictions_output_path(season, model_type=model_type)
     save_shot_predictions_csv(predictions, destination)
     try:
         saved_path = destination.relative_to(PROJECT_ROOT)
@@ -219,7 +255,21 @@ def parse_args() -> argparse.Namespace:
         "--output-path",
         type=Path,
         default=None,
-        help="Output CSV path (default: reports/tables/shot_predictions_<season>.csv)",
+        help=(
+            "Output CSV path "
+            "(default: reports/tables/shot_predictions_<season>_<model_type>.csv)"
+        ),
+    )
+    parser.add_argument(
+        "--model-type",
+        choices=SUPPORTED_MODEL_TYPES,
+        default=MODEL_TYPE_CANDIDATE,
+        help="Model backend to score evaluation shots (default: candidate)",
+    )
+    parser.add_argument(
+        "--gru-run-id",
+        default=None,
+        help="MLflow run id for GRU artifacts (required when --model-type gru)",
     )
     parser.add_argument(
         "--model-name",
@@ -231,6 +281,28 @@ def parse_args() -> argparse.Namespace:
         default=CANDIDATE_ALIAS,
         help=f"Registered model alias to load (default: {CANDIDATE_ALIAS})",
     )
+    parser.add_argument(
+        "--gru-cache-root",
+        type=Path,
+        default=None,
+        help="Local cache directory for GRU artifacts (gru model type only)",
+    )
+    parser.add_argument(
+        "--gru-force-download",
+        action="store_true",
+        help="Re-download GRU artifacts even if cached locally",
+    )
+    parser.add_argument(
+        "--gru-device",
+        default=None,
+        help="Torch device for GRU inference (default: cuda when available)",
+    )
+    parser.add_argument(
+        "--gru-batch-size",
+        type=int,
+        default=None,
+        help="Inference batch size for GRU scoring",
+    )
     return parser.parse_args()
 
 
@@ -238,10 +310,16 @@ def main() -> None:
     args = parse_args()
     run_predict_shots(
         args.season,
+        model_type=args.model_type,
+        gru_run_id=args.gru_run_id,
         processed_dir=args.processed_dir,
         output_path=args.output_path,
         registered_model_name=args.model_name,
         alias=args.model_alias,
+        gru_cache_root=args.gru_cache_root,
+        gru_force_download=args.gru_force_download,
+        gru_device=args.gru_device,
+        gru_batch_size=args.gru_batch_size,
     )
 
 
