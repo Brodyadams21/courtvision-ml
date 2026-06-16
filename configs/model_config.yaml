@@ -4,7 +4,7 @@ models:
   baseline:
     type: logistic_regression
   tree_candidate:
-    type: xgboost
+    type: lightgbm
 metrics:
   - auc
   - log_loss
