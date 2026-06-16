@@ -79,9 +79,10 @@ flowchart TD
 - Calculate expected shot value
 - Calculate points above expected
 - Compare actual shooting performance against model expectations
-- Build player-level summaries
+- Score evaluation shots with the registered LightGBM **Candidate** or a trained **GRU** run (`predict_shots.py`)
+- Build player, team, zone, and monthly trend summaries (`summaries.py`)
 - Analyze shot quality by player, team, shot zone, and game context
-- Generate basketball-facing insights for player development and strategy
+- Generate basketball-facing insights for player development and strategy (`write_insights.py`)
 
 ### API and Dashboard
 
@@ -177,9 +178,18 @@ courtvision-ml/
 │       │   ├── train_lgbm.py          # Phase 6 LightGBM search + registry
 │       │   ├── audit_feature_leakage.py
 │       │   ├── registry.py            # MLflow Candidate alias helpers
+│       │   ├── train_mlp.py           # Phase 7 MLP
+│       │   ├── train_gru.py           # Phase 7 GRU
 │       │   ├── train.py               # planned unified entrypoint
 │       │   ├── evaluate.py
 │       │   └── predict.py
+│       ├── evaluation/
+│       │   ├── __init__.py
+│       │   ├── expected_value.py      # Phase 8 EV formulas
+│       │   ├── predict_shots.py       # Candidate + GRU shot scoring
+│       │   ├── predict_gru.py         # GRU artifact load + inference
+│       │   ├── summaries.py           # player/team/zone/trend tables
+│       │   └── write_insights.py      # basketball insights markdown
 │       ├── monitoring/
 │       │   ├── __init__.py
 │       │   ├── drift.py
@@ -211,7 +221,7 @@ courtvision-ml/
     ├── baseline_model_report.md
     ├── lightgbm_candidate_report.md
     ├── figures/                       # calibration, importance plots
-    ├── tables/                        # feature importance CSVs
+    ├── tables/                        # shot predictions, evaluation summaries
     ├── model_card.md
     ├── basketball_insights.md
     └── cloud_architecture.md
@@ -751,19 +761,43 @@ Phase 6 is implemented for the 2024-25 season.
 
 ### Phase 8: Expected Shot Value and Player Evaluation
 
-**Complete.** Phase 8 uses the registered LightGBM **Candidate** model for reproducible expected-value reporting. The GRU v3 remains a stronger **Challenger+** model for future promotion after calibration and inference packaging.
+**Complete.** Phase 8 scores held-out evaluation shots, aggregates expected-value summaries, and writes basketball-facing insights. The default path uses the registered LightGBM **Candidate** for registry-backed reproducibility. The stronger GRU v3 **Challenger+** model can be scored end-to-end with the same pipeline via `--model-type gru`.
 
-- Score evaluation shots and compute expected shot value (`predict_shots.py`)
+- Expected shot value formulas (`expected_value.py`)
+- Score evaluation shots with Candidate or GRU (`predict_shots.py`, `predict_gru.py`)
 - Build player, team, zone, and monthly trend summaries (`summaries.py`)
-- Write basketball-facing insights (`write_insights.py`)
+- Write basketball-facing insights with configurable model metadata (`write_insights.py`)
+
+**Candidate workflow (default):**
 
 ```powershell
-python -m courtvision.evaluation.predict_shots --season 2024-25
+$env:PYTHONPATH = "src"
+python -m courtvision.evaluation.predict_shots --season 2024-25 --model-type candidate
 python -m courtvision.evaluation.summaries --season 2024-25
 python -m courtvision.evaluation.write_insights --season 2024-25
 ```
 
-**Report:** `reports/basketball_insights.md`
+**GRU workflow:**
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m courtvision.evaluation.predict_shots --season 2024-25 --model-type gru --gru-run-id 40fe1b8851f7423f831a77fce30b770d
+python -m courtvision.evaluation.summaries --season 2024-25 --predictions-path reports\tables\shot_predictions_2024-25_gru.csv
+python -m courtvision.evaluation.write_insights --season 2024-25 `
+  --model-label "GRU spatial_sequence v3 (Challenger+)" `
+  --model-detail "GRU run ID: 40fe1b8851f7423f831a77fce30b770d"
+```
+
+**Outputs:**
+
+| Artifact | Path |
+|---|---|
+| Shot predictions (Candidate) | `reports/tables/shot_predictions_2024-25_candidate.csv` |
+| Shot predictions (GRU) | `reports/tables/shot_predictions_2024-25_gru.csv` |
+| Player / team / zone / trend summaries | `reports/tables/*_evaluation_2024-25.csv`, `player_trends_2024-25.csv` |
+| Basketball insights report | `reports/basketball_insights.md` |
+
+Model-specific shot CSV names prevent Candidate and GRU runs from overwriting each other. `summaries` defaults to the Candidate predictions file; pass `--predictions-path` for GRU summaries. `write_insights` defaults to Candidate metadata; pass `--model-label` and `--model-detail` for GRU reports.
 
 ### Phase 9: Cloud-Assisted Training Path
 
@@ -814,7 +848,7 @@ python -m courtvision.evaluation.write_insights --season 2024-25
 | Phase 5 — Baseline modeling | Complete (`train_baseline.py`, MLflow, baseline report) |
 | Phase 6 — LightGBM candidate | Complete (`train_lgbm.py`, leakage audit, registry, candidate report) |
 | Phase 7 — Deep learning & spatial modeling | Complete (`train_mlp.py`, `train_gru.py`, deep learning report) |
-| Phase 8 — Expected shot value & player evaluation | Complete (`predict_shots.py`, `summaries.py`, `write_insights.py`, basketball insights) |
+| Phase 8 — Expected shot value & player evaluation | Complete (`predict_shots.py`, `predict_gru.py`, `summaries.py`, `write_insights.py`, basketball insights) |
 | Phase 9+ — Cloud, serving, monitoring | Planned |
 
 **Typical local workflow (2024-25):**
@@ -840,9 +874,11 @@ python -m courtvision.models.train_lgbm --mode search --register-candidate
 | LightGBM candidate (Phase 6) | `reports/lightgbm_candidate_report.md` |
 | Deep learning (Phase 7) | `reports/deep_learning_report.md` |
 | Basketball insights (Phase 8) | `reports/basketball_insights.md` |
+| Shot predictions — Candidate (Phase 8) | `reports/tables/shot_predictions_2024-25_candidate.csv` |
+| Shot predictions — GRU (Phase 8) | `reports/tables/shot_predictions_2024-25_gru.csv` |
 
 ## Final Project Outcome
 
 The finished project should demonstrate the ability to build a production-style basketball machine learning platform that moves beyond a simple notebook. The goal is to show end-to-end ownership across data pipelines, machine learning, model evaluation, model serving, dashboard delivery, monitoring, documentation, and basketball decision support.
 
-Phase 8 expected-value reporting intentionally scores shots with the registered LightGBM **Candidate** for reproducible, registry-backed insights. The GRU v3 is the stronger **Challenger+** model on raw test metrics but is not yet promoted; calibration review and inference packaging come before using it for production-style EV reporting.
+Phase 8 expected-value reporting supports both the registered LightGBM **Candidate** (default, registry-backed) and the stronger GRU v3 **Challenger+** model via `--model-type gru`. LightGBM remains the production **Candidate** alias in the MLflow registry; the GRU path reuses the same EV tables and insights pipeline with model-specific output names and report metadata. Formal promotion to a production alias still depends on calibration review, serving packaging, and monitoring.
