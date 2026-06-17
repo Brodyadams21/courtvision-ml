@@ -45,12 +45,14 @@ def test_default_mode_calls_run_default(
         *,
         processed_dir: Path | None = None,
         log_mlflow: bool = True,
+        mlflow_tracking_uri: str | None = None,
     ) -> dict[str, float]:
         calls.append(
             {
                 "season": season,
                 "processed_dir": processed_dir,
                 "log_mlflow": log_mlflow,
+                "mlflow_tracking_uri": mlflow_tracking_uri,
             }
         )
         return {"auc": 0.5}
@@ -68,6 +70,7 @@ def test_default_mode_calls_run_default(
     assert calls[0]["season"] == "2024-25"
     assert calls[0]["processed_dir"] == local_project_config.data_dir / "processed" / "features"
     assert calls[0]["log_mlflow"] is False
+    assert calls[0]["mlflow_tracking_uri"] is None
 
 
 def test_search_mode_calls_run_search(
@@ -83,6 +86,7 @@ def test_search_mode_calls_run_search(
         inner_train_fraction: float = INNER_TRAIN_FRACTION,
         log_mlflow: bool = True,
         register_candidate: bool = False,
+        mlflow_tracking_uri: str | None = None,
     ) -> dict[str, object]:
         calls.append(
             {
@@ -91,6 +95,7 @@ def test_search_mode_calls_run_search(
                 "inner_train_fraction": inner_train_fraction,
                 "log_mlflow": log_mlflow,
                 "register_candidate": register_candidate,
+                "mlflow_tracking_uri": mlflow_tracking_uri,
             }
         )
         return {"config_index": 0}
@@ -116,6 +121,75 @@ def test_search_mode_calls_run_search(
     assert calls[0]["inner_train_fraction"] == 0.7
     assert calls[0]["log_mlflow"] is True
     assert calls[0]["register_candidate"] is True
+    assert calls[0]["mlflow_tracking_uri"] is None
+
+
+def test_default_mode_passes_mlflow_tracking_uri_from_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+    config = ProjectConfig(
+        environment="local",
+        data_dir=Path("/tmp/data"),
+        mlflow_tracking_uri="http://127.0.0.1:5000",
+    )
+
+    def fake_run_default(
+        season: str,
+        *,
+        processed_dir: Path | None = None,
+        log_mlflow: bool = True,
+        mlflow_tracking_uri: str | None = None,
+    ) -> dict[str, float]:
+        calls.append({"mlflow_tracking_uri": mlflow_tracking_uri})
+        return {"auc": 0.5}
+
+    monkeypatch.setattr(
+        train_entrypoint,
+        "load_project_config",
+        lambda _path: config,
+    )
+    monkeypatch.setattr(train_entrypoint.train_lgbm, "run_default", fake_run_default)
+
+    train_entrypoint.run_from_args(_base_args(mode="default"))
+
+    assert len(calls) == 1
+    assert calls[0]["mlflow_tracking_uri"] == "http://127.0.0.1:5000"
+
+
+def test_search_mode_passes_mlflow_tracking_uri_from_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+    config = ProjectConfig(
+        environment="local",
+        data_dir=Path("/tmp/data"),
+        mlflow_tracking_uri="http://127.0.0.1:5000",
+    )
+
+    def fake_run_search(
+        season: str,
+        *,
+        processed_dir: Path | None = None,
+        inner_train_fraction: float = INNER_TRAIN_FRACTION,
+        log_mlflow: bool = True,
+        register_candidate: bool = False,
+        mlflow_tracking_uri: str | None = None,
+    ) -> dict[str, object]:
+        calls.append({"mlflow_tracking_uri": mlflow_tracking_uri})
+        return {"config_index": 0}
+
+    monkeypatch.setattr(
+        train_entrypoint,
+        "load_project_config",
+        lambda _path: config,
+    )
+    monkeypatch.setattr(train_entrypoint.train_lgbm, "run_search", fake_run_search)
+
+    train_entrypoint.run_from_args(_base_args(mode="search"))
+
+    assert len(calls) == 1
+    assert calls[0]["mlflow_tracking_uri"] == "http://127.0.0.1:5000"
 
 
 def test_unsupported_model_fails_cleanly() -> None:

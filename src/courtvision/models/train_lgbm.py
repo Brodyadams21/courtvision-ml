@@ -159,12 +159,12 @@ class SearchTrialResult(TypedDict):
     test_auc: float
 
 
-def configure_mlflow() -> None:
+def configure_mlflow(tracking_uri: str | None = None) -> None:
     """Load ``.env`` and set MLflow tracking URI / experiment."""
     load_dotenv(DEFAULT_ENV_PATH)
-    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI")
-    if tracking_uri:
-        mlflow.set_tracking_uri(tracking_uri)
+    resolved_tracking_uri = tracking_uri or os.environ.get("MLFLOW_TRACKING_URI")
+    if resolved_tracking_uri:
+        mlflow.set_tracking_uri(resolved_tracking_uri)
     mlflow.set_experiment(MLFLOW_EXPERIMENT)
 
 
@@ -423,6 +423,7 @@ def run_default(
     *,
     processed_dir: Path | None = None,
     log_mlflow: bool = True,
+    mlflow_tracking_uri: str | None = None,
 ) -> dict[str, float]:
     """Train default LightGBM on full train parquet; evaluate on held-out test."""
     paths = processed_train_test_paths(season, output_dir=processed_dir)
@@ -446,7 +447,7 @@ def run_default(
     print_metrics_block("Test metrics", test_metrics)
 
     if log_mlflow:
-        configure_mlflow()
+        configure_mlflow(tracking_uri=mlflow_tracking_uri)
         run_name = f"lightgbm-default-{season}"
         with mlflow.start_run(run_name=run_name):
             _log_common_params(
@@ -491,6 +492,7 @@ def run_search(
     inner_train_fraction: float = INNER_TRAIN_FRACTION,
     log_mlflow: bool = True,
     register_candidate: bool = False,
+    mlflow_tracking_uri: str | None = None,
 ) -> SearchTrialResult:
     """Small hyperparameter search with inner validation; retrain best on full train."""
     paths = processed_train_test_paths(season, output_dir=processed_dir)
@@ -518,7 +520,7 @@ def run_search(
     x_test, y_test = split_features_target(test)
 
     if log_mlflow:
-        configure_mlflow()
+        configure_mlflow(tracking_uri=mlflow_tracking_uri)
 
     trial_results: list[SearchTrialResult] = []
 

@@ -90,6 +90,7 @@ def run_from_args(args: argparse.Namespace) -> None:
                 inner_train_fraction=args.inner_train_fraction,
                 log_mlflow=log_mlflow,
                 register_candidate=args.register_candidate,
+                mlflow_tracking_uri=config.mlflow_tracking_uri or None,
             )
             return
 
@@ -97,6 +98,7 @@ def run_from_args(args: argparse.Namespace) -> None:
             args.season,
             processed_dir=processed_dir,
             log_mlflow=log_mlflow,
+            mlflow_tracking_uri=config.mlflow_tracking_uri or None,
         )
 
 
