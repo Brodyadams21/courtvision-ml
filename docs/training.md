@@ -2,12 +2,15 @@
 
 This guide explains how to run CourtVision model training locally and in Docker.
 
+**Run all commands from the project root** (`courtvision-ml/`).
+
 ## Prerequisites
 
 - Python 3.11
 - Docker Desktop
 - Project dependencies installed from `requirements.txt`
 - Processed feature files available under `data/processed/features`
+- For local Python commands, set `$env:PYTHONPATH = "src"` in the current PowerShell window.
 
 ## 1. Local training without MLflow
 
@@ -37,9 +40,15 @@ python -m courtvision.models.train --config configs/local.yaml --model lightgbm 
 
 Open MLflow at:
 
+```
 http://127.0.0.1:5000
+```
 
 ## 3. Local pipeline runner
+
+```powershell
+$env:PYTHONPATH = "src"
+```
 
 Dry run:
 
@@ -81,17 +90,21 @@ Start MLflow on the host:
 .\scripts\start_mlflow.ps1
 ```
 
-Run Docker training using the Docker config:
+**Use `configs/docker.yaml`, not `configs/local.yaml`.** Inside a container, `127.0.0.1` points at the container itself, not your Windows host. `configs/docker.yaml` sets `mlflow_tracking_uri` to `http://host.docker.internal:5000` so training can reach the MLflow server on the host.
+
+Run Docker training:
 
 ```powershell
 docker run --rm -v "${PWD}\data\processed\features:/app/data/processed/features" -v "${PWD}\reports:/app/reports" courtvision-train:local python -m courtvision.models.train --config configs/docker.yaml --model lightgbm --mode default
 ```
 
-Inside Docker, `configs/docker.yaml` uses:
+The Docker tracking URI in `configs/docker.yaml` is:
 
+```
 http://host.docker.internal:5000
+```
 
-so the container can log to the MLflow server running on the host machine.
+Mount `reports/` if you want feature-importance plots and tables written on the host (not only inside the container).
 
 ## Expected LightGBM smoke-test metrics
 
@@ -105,6 +118,15 @@ accuracy: 0.6218
 ```
 
 Small differences can happen across dependency versions, but large differences should be investigated.
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| Docker training cannot reach MLflow (`Connection refused`, requests to `127.0.0.1:5000`) | Use `--config configs/docker.yaml`, not `configs/local.yaml`. |
+| MLflow rejects requests from Docker (`Invalid Host header`) | Restart MLflow with `.\scripts\start_mlflow.ps1`. The script binds to `0.0.0.0` and passes `--allowed-hosts` for `host.docker.internal`. |
+| LightGBM MLflow model logging fails on skops / untrusted types | Training code logs sklearn models with `serialization_format=mlflow.sklearn.SERIALIZATION_FORMAT_CLOUDPICKLE` in `train_lgbm.py`. |
+| Docker logs show `Failed to import Git...` | Rebuild the image after `Dockerfile.train` installs `git` (`docker build -f Dockerfile.train -t courtvision-train:local .`). |
 
 ## Notes
 
