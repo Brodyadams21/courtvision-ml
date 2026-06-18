@@ -166,6 +166,8 @@ pip install -r requirements.txt
 $env:PYTHONPATH = "src"
 ```
 
+Direct dependencies live in `requirements.in`; the pinned local lock is `requirements.txt`. See [Dependency management](docs/training.md#dependency-management) in the training guide.
+
 Copy `.env.example` → `.env`. Start PostgreSQL and apply schema:
 
 ```powershell
