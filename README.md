@@ -166,6 +166,10 @@ pip install -r requirements.txt
 $env:PYTHONPATH = "src"
 ```
 
+## Training
+
+See [`docs/training.md`](docs/training.md) for local training, MLflow logging, local pipeline runs, and Dockerized training.
+
 Copy `.env.example` → `.env`. Start PostgreSQL and apply schema:
 
 ```powershell
