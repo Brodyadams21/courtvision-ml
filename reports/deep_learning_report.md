@@ -1,230 +1,195 @@
-# Deep Learning Report — Shot Make Probability
+# Deep Learning Report - Shot Make Probability
 
-**Project:** CourtVision ML  
-**Phase:** 7 — Deep Learning and Spatial Modeling  
-**Season:** 2024-25  
-**Report date:** 2026-06-11  
-**Training scripts:** `train_mlp.py`, `train_gru.py`  
-**Sequence builder:** `sequence_features.py`  
+**Project:** CourtVision ML
+
+**Phase:** 7 - Deep Learning and Spatial Modeling
+
+**Season:** 2024-25
+
+**Report updated:** 2026-06-18
+
+**Training scripts:** `train_mlp.py`, `train_gru.py`
+
+**Sequence builder:** `sequence_features.py`
+
 **MLflow experiments:** `courtvision-mlp`, `courtvision-gru`
 
 ---
 
 ## Summary
 
-Phase 7 adds PyTorch models alongside the Phase 6 LightGBM **Candidate** (`courtvision-shot-make-model`). The deep-learning path has three checkpoints:
+Phase 7 adds PyTorch models alongside the Phase 6 LightGBM Candidate. The model ladder now contains four neural checkpoints:
 
-1. **MLP v1 (tabular)** — same 31 features as LightGBM, with median imputation and standard scaling.
-2. **MLP v2 (spatial)** — tabular features plus 18 court-location encodings (49 inputs total).
-3. **GRU (spatial + sequence)** — spatial tabular branch plus a 5-step prior play-by-play sequence branch with 26 event-context features.
+1. **MLP v1 (tabular)** - the same 31 features used by LightGBM.
+2. **MLP v2 (spatial)** - 31 base features plus 18 court-location encodings.
+3. **GRU v2 (spatial + sequence)** - 49 tabular features plus the previous 5 play-by-play events with 26 features per event.
+4. **GRU v3 (spatial + sequence + pressure)** - 62 tabular features plus the previous 5 events with 29 features per event.
 
-The GRU is the strongest model in Phase 7: it combines shot-level spatial/tabular context with recent game flow and achieves the best held-out test metrics (log loss **0.6470**). The MLflow run is tagged `beats_lightgbm=true` and `model_role=Challenger`. LightGBM remains the registered **Candidate**; the GRU is **not** auto-promoted to production.
+GRU v3 is the best evaluated model. It reaches **0.6468 log loss**, compared with **0.6495** for the registered LightGBM Candidate. The published expected-shot-value analysis uses the v3 run.
+
+**GRU v3 MLflow run ID:** `40fe1b8851f7423f831a77fce30b770d`
+
+LightGBM remains the registered Candidate because it has a simpler serving contract. GRU v3 is described as **Challenger+** in project reporting; the training code records the MLflow role tag as `Challenger`.
 
 ---
 
 ## Data and split
 
-All models use the same Parquet export and time-based split as Phase 5–6:
+All models use the same time-ordered 2024-25 feature export:
 
-| Split | Shots | Notes |
-|-------|------:|-------|
-| Inner train | 140,120 | Earliest 80% of **train** games (MLP/GRU early stopping) |
-| Inner validation | 35,588 | Latest 20% of **train** games |
-| Full train | 175,708 | 984 games |
-| Test | 43,819 | 246 held-out future games |
+| Split | Shots | Purpose |
+|-------|------:|---------|
+| Inner train | 140,120 | Earliest 80% of exported training games |
+| Inner validation | 35,588 | Latest 20% of exported training games; early stopping |
+| Full exported train | 175,708 | 984 games |
+| Held-out test | 43,819 | 246 later games |
 
-**Source files:**
+Source files:
 
 - `data/processed/features/train_shot_features_2024-25.parquet`
 - `data/processed/features/test_shot_features_2024-25.parquet`
 
-**Target:** `shot_made_flag`
+The target is `shot_made_flag`. Preprocessors are fitted on inner-train data and then applied to validation and test data.
 
 ---
 
-## MLP tabular setup (v1)
+## MLP checkpoints
 
-| Item | Detail |
-|------|--------|
-| Script | `python -m courtvision.models.train_mlp --mode default --feature-set tabular` |
-| Features | 31 columns from `FEATURE_COLUMNS` (identical to LightGBM) |
-| Preprocessing | Median imputation → `StandardScaler` (fit on inner train only) |
-| Architecture | MLP `128 → 64 → 32`, dropout `0.2`, Adam, `BCEWithLogitsLoss` |
-| Selection | Validation log loss, patience-based early stopping |
-| MLflow experiment | `courtvision-mlp` |
+| Item | MLP v1 | MLP v2 |
+|------|--------|--------|
+| Command | `python -m courtvision.models.train_mlp --mode default --feature-set tabular` | `python -m courtvision.models.train_mlp --mode default --feature-set spatial` |
+| Inputs | 31 tabular features | 31 tabular + 18 spatial features |
+| Preprocessing | Median imputation, then standard scaling | Same |
+| Architecture | `128 -> 64 -> 32`, dropout 0.2 | Same |
+| Optimization | Adam + `BCEWithLogitsLoss` | Same |
+| Selection | Validation log loss with patience-based early stopping | Same |
 
-**Purpose:** Establish a fair neural baseline on the same tabular feature set as LightGBM. Answers whether a feed-forward net adds value without spatial or sequence extras.
-
----
-
-## MLP spatial setup (v2)
-
-| Item | Detail |
-|------|--------|
-| Script | `python -m courtvision.models.train_mlp --mode default --feature-set spatial` |
-| Features | 31 tabular + 18 spatial encodings = **49** (`spatial_features.py`) |
-| Spatial encodings | Scaled `loc_x`/`loc_y`, polynomials, angle sin/cos, side flags, distances to rim/corners/key/wings/paint |
-| Preprocessing | Same as tabular MLP |
-| Architecture | Same MLP head as v1 |
-| MLflow experiment | `courtvision-mlp` |
-
-**Purpose:** Test whether explicit court-geometry features help a neural net beyond raw `loc_x`, `loc_y`, and `shot_distance` already in the tabular set.
+The spatial encodings include scaled court coordinates, polynomial terms, angle sin/cos, side indicators, and distances to basketball-relevant landmarks. Spatial MLP improves slightly over tabular MLP but does not beat LightGBM.
 
 ---
 
-## GRU sequence setup (spatial + prior events)
+## GRU v3 setup
 
 | Item | Detail |
 |------|--------|
-| Script | `python -m courtvision.models.train_gru --mode default` |
+| Command | `python -m courtvision.models.train_gru --mode default` |
 | Feature set | `spatial_sequence` |
-| Tabular branch | 49 spatial features (same as MLP v2), median impute + scale |
-| Sequence branch | Prior **5** PBP events × **26** numeric event features (v2) |
-| Sequence alignment | `shot_id → sequence` map; parquet row order is **not** assumed |
-| Sequence preprocessing | `StandardScaler` on flattened event features (fit on inner train) |
-| Architecture | Tabular `Linear→ReLU→Dropout` (embed 64) + `GRU(26→64)` → concat → MLP `64→32→1` |
-| Selection | Validation log loss, patience-based early stopping |
-| MLflow experiment | `courtvision-gru` |
+| Tabular branch | 49 spatial features + 13 pressure/sequence-summary features = **62** |
+| Sequence branch | Previous **5** play-by-play events x **29** numeric features |
+| Sequence alignment | Explicit `shot_id -> sequence` mapping |
+| Preprocessing | Separate train-fitted tabular and sequence preprocessors |
+| Architecture | Tabular embed `62 -> 64` + `GRU(29 -> 64)` -> head `64 -> 32 -> 1` |
+| Optimization | Adam, weight decay, BCE loss, early stopping on validation log loss |
+| Default training | Batch size 1,024; up to 50 epochs; patience 5; seed 42 |
 
-### Event features (26 per timestep, v2)
+### v3 sequence additions
 
-Core timing/context: `event_order_from_shot`, `period`, `seconds_remaining_period`, `seconds_remaining_game`, `seconds_since_next_event_or_shot`, `same_team_as_shooter`, `event_team_is_home`, `score_margin_before_event`.
+The v3 event representation expands v2 from 26 to 29 fields with:
 
-**Sequence v2 additions:** `event_score_change`, `event_team_is_opponent`, `is_offensive_rebound`, `is_defensive_rebound`, `is_steal`, `is_block`.
+- `event_seconds_before_shot`
+- `event_likely_possession_change`
+- `event_same_possession_as_shot`
 
-Event-type flags: `is_field_goal`, `is_made_shot_event`, `is_missed_shot_event`, `is_rebound`, `is_turnover`, `is_foul`, `is_free_throw`, `is_timeout`, `is_substitution`, `is_violation`, `is_jump_ball`, `is_unknown_event`.
+The tabular branch adds 13 values derived from the prior-event window:
 
-### GRU MLflow artifacts
+- Shot-period clock and a possession-age late-clock proxy
+- Timeout, offensive-rebound, and turnover presence flags
+- Prior-5 score-change, turnover, steal, offensive-rebound, defensive-rebound, foul, same-team-event, and opponent-event counts
 
-Each successful `train_gru` run logs:
+These additions provide compact game-flow context without including the current shot result.
 
-| Artifact | Description |
-|----------|-------------|
-| `gru_training_curve.png` | Train BCE loss vs. validation log loss by epoch |
-| `gru_calibration_curve.png` | Test-set calibration |
-| `gru_probability_distribution.png` | Test predicted probability histogram |
-| `feature_columns.json` | 49 spatial tabular column names |
-| `event_feature_columns.json` | 26 sequence feature names + `sequence_length` |
-| `model_config.json` | Hyperparameters and architecture summary |
+---
+
+## Leakage and alignment controls
+
+Sequence construction enforces strict temporal causality:
+
+1. For a shot at `game_event_id = N`, only events with `action_number < N` are eligible.
+2. The shot's own play-by-play row is excluded because it contains the make/miss result.
+3. Future events are excluded.
+4. `score_margin_before_event` uses a prior-event score snapshot.
+5. Sequence coverage is checked independently for inner train, validation, and test shot IDs.
+6. Row order is not trusted; sequences are realigned through the shot-ID map.
+7. A final check requires every observed prior action number to be lower than the shot event ID.
+
+The safeguards are covered by `test_sequence_features.py`, `test_torch_sequence_data.py`, `test_pressure_features.py`, and GRU inference tests.
+
+---
+
+## MLflow and inference bundle
+
+Each successful GRU training run logs:
+
+| Artifact | Purpose |
+|----------|---------|
 | `gru_state_dict.pt` | PyTorch weights |
-| `tabular_preprocessor.joblib` | Fitted tabular imputer + scaler |
+| `model_config.json` | Architecture and training settings |
+| `feature_columns.json` | Ordered 62-column tabular contract |
+| `event_feature_columns.json` | Ordered 29-column sequence contract and sequence length |
+| `tabular_preprocessor.joblib` | Fitted tabular imputer/scaler |
 | `sequence_preprocessor.joblib` | Fitted sequence scaler |
+| `gru_training_curve.png` | Training and validation history |
+| `gru_calibration_curve.png` | Test calibration plot |
+| `gru_probability_distribution.png` | Test probability distribution |
 
-**Tags:** `model_role=Challenger`, `beats_lightgbm=true|false`, `sequence_length=5`
-
-Copies of the three PNG figures are also written to `reports/figures/`.
-
----
-
-## Sequence leakage controls
-
-Sequence construction (`sequence_features.py`) enforces strict temporal causality:
-
-1. For a shot at `game_event_id = N`, only play-by-play rows with **`action_number < N`** are eligible.
-2. The shot's own PBP row (`action_number == N`) is **never** included — it contains make/miss outcome.
-3. Future events (`action_number > N`) are never used.
-4. `score_margin_before_event` uses **prior-event** score snapshots (`shift(1)` within game), never the shot outcome.
-5. After building all sequences, a check confirms `max(prior action_number) < game_event_id` for every shot with prior events.
-6. Unit tests in `tests/test_sequence_features.py` verify exclusion of the shot event and correct padding.
-
-This mirrors the `score_margin` leakage fix documented in `reports/lightgbm_candidate_report.md`.
+`src/courtvision/evaluation/predict_gru.py` downloads or reuses the bundle, validates its metadata, rebuilds the architecture, loads weights with `weights_only=True`, aligns sequences, and scores shots in batches.
 
 ---
 
-## Model comparison (2024-25 test set, 43,819 shots)
+## Model comparison
+
+All values below use the same 43,819-shot test export.
 
 | Model | Features | AUC | Log loss | Brier | Accuracy | Role |
 |-------|----------|----:|---------:|------:|---------:|------|
-| Baseline logistic | 31 tabular | 0.6397 | 0.6610 | 0.2343 | 0.6062 | Reference |
-| LightGBM Candidate | 31 tabular | 0.6479 | 0.6495 | 0.2292 | 0.6213 | **Candidate** (registry) |
+| Logistic regression | 31 tabular | 0.6397 | 0.6610 | 0.2343 | 0.6062 | Baseline |
+| LightGBM | 31 tabular | 0.6479 | 0.6495 | 0.2292 | 0.6213 | Registered Candidate |
 | MLP tabular | 31 tabular | 0.6437 | 0.6532 | 0.2307 | 0.6203 | Neural baseline |
-| MLP spatial | 49 tabular+spatial | 0.6443 | 0.6530 | 0.2306 | 0.6209 | Spatial neural model |
-| GRU spatial+sequence v2 | 49 + 5×26 sequence | **0.6517** | **0.6470** | **0.2282** | **0.6233** | **Challenger** |
+| MLP spatial | 49 tabular | 0.6443 | 0.6530 | 0.2306 | 0.6209 | Spatial neural |
+| GRU v2 | 49 + 5 x 26 sequence | 0.6517 | 0.6470 | 0.2282 | 0.6233 | Challenger |
+| **GRU v3** | **62 + 5 x 29 sequence** | **0.6516** | **0.6468** | **0.2282** | **0.6235** | **Challenger+** |
 
-Baseline and LightGBM figures are from `reports/lightgbm_candidate_report.md`. PyTorch metrics are from MLflow runs in `courtvision-mlp` and `courtvision-gru`.
-
-**Comparison rule:** `beats_lightgbm=true` when GRU test log loss **< 0.6495** (satisfied: **0.6470**).
-
----
-
-## Current model ranking
-
-Best model by held-out test log loss (2024-25):
-
-1. GRU spatial + sequence v2: **0.6470**
-2. LightGBM Candidate: 0.6495
-3. MLP spatial: 0.6530
-4. MLP tabular: 0.6532
-5. Logistic baseline: 0.6610
+Deep learning adds value only after sequence context is included. The MLP checkpoints trail LightGBM, while both GRU versions improve log loss and Brier score. V3 trades a negligible AUC decrease from v2 for better log loss and accuracy.
 
 ---
 
-## GRU tuning check
+## Evaluation caveat
 
-A small GRU tuning sweep tested hidden sizes 32, 64, and 128, dropout values 0.1, 0.2, and 0.3, and learning rates 0.0005, 0.001, and 0.002. None of the tested variants improved held-out test log loss over the default GRU configuration. The default model (`hidden_size=64`, `dropout=0.2`, `learning_rate=0.001`) remained the best GRU hyperparameter setting among those runs.
+Epoch selection uses the inner validation split, but multiple architecture and feature iterations have now been compared on the same 2024-25 test export. The test metrics remain useful for this portfolio-stage comparison, but they should not be treated as a permanently untouched production estimate.
 
----
-
-## Sequence feature upgrade
-
-A sequence feature upgrade expanded the GRU event representation from 20 to 26 features. Added context included event score change, whether the event team was the opponent, offensive and defensive rebound indicators, steal indicators, and block indicators. This improved held-out test log loss from 0.6474 to 0.6470, while also improving AUC, Brier score, and accuracy. The result supports the idea that basketball-aware event context is more valuable than simple GRU hyperparameter tuning for this stage.
+Before a Champion decision, evaluate the frozen pipeline on a fresh later season or a new final holdout that was not used during v2/v3 development.
 
 ---
 
-## Did deep learning help?
+## Why GRU v3 is not the production Candidate
 
-Yes — once sequence context was added. The tabular MLP learned useful signal but did not beat LightGBM. Spatial encodings improved the MLP slightly, showing that explicit court geometry helped the neural model. The GRU model, which combines the 49 spatial tabular features with the previous 5 play-by-play events, produced the best held-out test metrics in Phase 7.
-
-Because the GRU improves over LightGBM on AUC, log loss, Brier score, and accuracy, it earns Challenger status. LightGBM remains the registered Candidate because it is simpler to serve, easier to interpret, and already integrated into the model registry workflow. The GRU should be reviewed for calibration, serving complexity, and monitoring before any promotion decision.
-
----
-
-## Why GRU is Challenger, not automatically Production
-
-1. **Serving complexity** — GRU inference requires live PBP sequence assembly, two preprocessors, and PyTorch runtime. LightGBM serves from a single sklearn-compatible artifact on 31 raw features.
-2. **Calibration not proven** — Like LightGBM, raw logits need calibration review before expected-value or betting-style use (Phase 8).
-3. **Single season** — All models train on 2024-25 only; no multi-season or drift monitoring yet.
-4. **No API or monitoring** — Phase 10 (FastAPI) and Phase 12 (monitoring) are not wired for the GRU artifact bundle.
-5. **Registry policy** — `courtvision-shot-make-model` **Candidate** alias remains on LightGBM until a formal promotion path (Champion alias) is defined after API, calibration, and monitoring gates.
-
-The Challenger tag records that the GRU beat the tree candidate on held-out test log loss — a signal to invest in serving and calibration, not a production deploy.
+1. **Serving complexity:** inference needs a live or reconstructed prior-event sequence, two preprocessors, and PyTorch.
+2. **Calibration:** no separate post-hoc calibration model has been promoted.
+3. **Data scope:** all reported training and evaluation data comes from one NBA season.
+4. **Operational gaps:** FastAPI serving, monitoring, drift thresholds, and retraining triggers are not implemented.
+5. **Registry policy:** the registered Candidate remains the simpler LightGBM model until explicit promotion gates exist.
 
 ---
 
 ## Next steps
 
-### Calibration
-
-- Review `gru_calibration_curve.png` by shot type, distance decile, and period.
-- Compare GRU vs. LightGBM calibration on the same test bins.
-- Consider post-hoc calibration (Platt scaling or isotonic) before Phase 8 expected shot value work.
-
-### Serving
-
-- Package `gru_state_dict.pt` + `model_config.json` + both `.joblib` preprocessors + feature JSON files into a versioned inference bundle.
-- FastAPI endpoint must accept tabular features **and** assemble the prior-5 PBP sequence at request time (or load precomputed sequences for batch scoring).
-- Validate `shot_id` / `game_event_id` alignment in production to preserve leakage controls.
-
-### Registry and promotion
-
-- If `beats_lightgbm=true`, register a separate MLflow model name (e.g. `courtvision-shot-make-gru`) with a **Challenger** alias — do not overwrite the LightGBM **Candidate** without review.
-- Define explicit Champion promotion criteria (API latency, calibration error, drift thresholds).
-
-### Modeling
-
-- Tune GRU hidden size, learning rate, and sequence length if validation plateaus early.
-- Multi-season training and sequence coverage audits when 2025-26 data is added.
+- Evaluate GRU and LightGBM calibration by shot type, distance, zone, and game segment.
+- Freeze the current model-selection process and reserve a fresh season for final comparison.
+- Register the GRU under a separate model name and Challenger alias.
+- Add a small synthetic end-to-end test around each PyTorch training loop.
+- Implement the serving bundle, latency checks, monitoring, and Champion criteria.
+- Extend training to multiple seasons and add lineup or tracking-derived context when available.
 
 ---
 
 ## References
 
-- LightGBM candidate: `reports/lightgbm_candidate_report.md`
-- Baseline report: `reports/baseline_model_report.md`
-- MLP training: `src/courtvision/models/train_mlp.py`
-- GRU training: `src/courtvision/models/train_gru.py`
-- Spatial features: `src/courtvision/models/spatial_features.py`
-- Sequence features: `src/courtvision/models/sequence_features.py`
-- GRU data pipeline: `src/courtvision/models/torch_sequence_data.py`
-- Model definitions: `src/courtvision/models/torch_models.py`
-- Sequence tests: `tests/test_sequence_features.py`, `tests/test_torch_sequence_data.py`
+- `reports/model_card.md`
+- `reports/lightgbm_candidate_report.md`
+- `src/courtvision/models/train_mlp.py`
+- `src/courtvision/models/train_gru.py`
+- `src/courtvision/models/spatial_features.py`
+- `src/courtvision/models/sequence_features.py`
+- `src/courtvision/models/pressure_features.py`
+- `src/courtvision/models/torch_sequence_data.py`
+- `src/courtvision/evaluation/predict_gru.py`

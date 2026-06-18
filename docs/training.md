@@ -1,6 +1,6 @@
 # CourtVision Training Guide
 
-This guide explains how to run CourtVision model training locally and in Docker.
+This guide explains how to run CourtVision model training locally and in Docker. These are the implemented Phase 9 execution paths. `configs/aws.yaml` defines the intended AWS settings, but S3 transfer and SageMaker execution are not implemented yet.
 
 **Run all commands from the project root** (`courtvision-ml/`).
 
@@ -105,6 +105,19 @@ http://host.docker.internal:5000
 ```
 
 Mount `reports/` if you want feature-importance plots and tables written on the host (not only inside the container).
+
+## 6. AWS status
+
+`configs/aws.yaml` currently records the target region, S3 bucket, key prefixes, and placeholders for cloud database and MLflow endpoints. It is configuration scaffolding, not a working cloud pipeline.
+
+The remaining cloud-training work is:
+
+1. Upload processed features and selected outputs to S3.
+2. Implement `pipelines/sagemaker_pipeline.py` around the training container.
+3. Run at least one managed training job or preserve a reproducible documented dry run.
+4. Point MLflow at a cloud-accessible tracking server and verify artifact registration.
+
+Do not treat a successful local `--dry-run` as evidence that a SageMaker job was submitted.
 
 ## Expected LightGBM smoke-test metrics
 

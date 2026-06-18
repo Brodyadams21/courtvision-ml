@@ -38,6 +38,19 @@ flowchart LR
 - Best model: GRU spatial_sequence v3 with 62 tabular features plus 5 prior play-by-play events × 29 event features.
 - Improved held-out log loss from 0.6495 with LightGBM to 0.6468 with GRU v3.
 - Generated expected shot value summaries for 43,819 held-out NBA shots.
+- Added config-driven local training, a Docker training image, and separate pinned Windows and Linux dependency locks.
+
+## Current delivery status
+
+| Area | Status |
+|------|--------|
+| Data, validation, features, baseline, candidate, deep learning, and basketball evaluation | Complete |
+| Local and Docker training path | Complete |
+| AWS/SageMaker training path | Configuration only; S3 upload and cloud execution remain |
+| FastAPI serving, Streamlit dashboard, and monitoring | Planned; entry-point files are placeholders |
+| Final documentation and portfolio polish | In progress |
+
+See [`reports/development_plan.md`](reports/development_plan.md) for the phase-by-phase status.
 
 ---
 
@@ -225,7 +238,8 @@ pytest
 |----------|------|
 | Basketball insights report | `reports/basketball_insights.md` |
 | Shot predictions (GRU v3) | `reports/tables/shot_predictions_2024-25_gru.csv` |
-| Shot predictions (LightGBM Candidate) | `reports/tables/shot_predictions_2024-25_candidate.csv` |
+| Shot predictions (earlier LightGBM export) | `reports/tables/shot_predictions_2024-25.csv` |
+| Generated LightGBM Candidate output | `reports/tables/shot_predictions_2024-25_candidate.csv` (created on demand; not currently tracked) |
 | Player / team / zone evaluation summaries | `reports/tables/*_evaluation_2024-25.csv` generated from GRU v3 predictions |
 | Monthly player trends | `reports/tables/player_trends_2024-25.csv` |
 | Model reports | `reports/baseline_model_report.md`, `lightgbm_candidate_report.md`, `deep_learning_report.md` |
@@ -243,7 +257,7 @@ pytest
 | **Dashboard** | Streamlit pages for shot quality, player evaluation, and model performance |
 | **Calibration** | Platt / isotonic review by shot type and zone; compare GRU vs. LightGBM bins |
 | **Monitoring** | Data drift, prediction drift, calibration tracking, retraining triggers |
-| **Cloud** | AWS-style training path, artifact storage, SageMaker pipeline stub in `pipelines/` |
+| **Cloud** | Upload data/artifacts to S3, implement `sagemaker_pipeline.py`, run at least one managed training job or documented dry run, and connect cloud MLflow tracking |
 | **Data** | Multi-season training (2025-26+), lineup and defender-distance features |
 | **Registry** | Formal Champion promotion criteria for GRU after API, calibration, and monitoring gates |
 
@@ -251,4 +265,4 @@ pytest
 
 ## Tech stack
 
-Python 3.11 · PostgreSQL · pandas · scikit-learn · LightGBM · PyTorch · MLflow · FastAPI (planned) · Streamlit (planned) · Pandera · nba-api · pytest · Ruff · GitHub Actions
+Python 3.11 · PostgreSQL · pandas · scikit-learn · LightGBM · PyTorch · MLflow · Docker · FastAPI (planned) · Streamlit (planned) · Pandera · nba-api · pytest · Ruff · GitHub Actions
