@@ -134,3 +134,19 @@ Small differences can happen across dependency versions, but large differences s
 - Use `--no-mlflow` for quick training checks.
 - Use Docker training to verify the project works outside the local virtual environment.
 - Use Candidate registration only with search mode.
+
+## Dependency management
+
+Direct dependencies are listed in `requirements.in`.
+
+The pinned install file is `requirements.txt` and is generated with:
+
+```powershell
+python -m piptools compile --resolver=backtracking --output-file requirements.txt requirements.in
+```
+
+Install dependencies with:
+
+```powershell
+pip install -r requirements.txt
+```
