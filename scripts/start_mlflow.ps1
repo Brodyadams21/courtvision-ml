@@ -21,7 +21,7 @@ $PostgresHost = "127.0.0.1"
 $PostgresPort = "5433"
 $PostgresService = "postgres"
 $MlflowDatabase = "courtvision_mlflow"
-$MlflowHost = "127.0.0.1"
+$MlflowHost = "0.0.0.0"
 $MlflowPort = "5000"
 $ArtifactRootPath = Join-Path $ProjectRoot "mlartifacts"
 $CreateDbSql = Join-Path $ProjectRoot "sql/create_mlflow_database.sql"
@@ -48,15 +48,19 @@ New-Item -ItemType Directory -Force -Path $ArtifactRootPath | Out-Null
 $ArtifactRootUri = ([System.Uri]((Resolve-Path $ArtifactRootPath).Path)).AbsoluteUri
 
 $BackendStoreUri = "postgresql://${PostgresUser}:${PostgresPassword}@${PostgresHost}:${PostgresPort}/${MlflowDatabase}"
-$TrackingUri = "http://${MlflowHost}:${MlflowPort}"
+$LocalTrackingUri = "http://127.0.0.1:${MlflowPort}"
+$DockerTrackingUri = "http://host.docker.internal:${MlflowPort}"
 
-Write-Host "  Tracking URI:  $TrackingUri"
+Write-Host "  Local browser:        $LocalTrackingUri"
+Write-Host "  Local tracking URI:   $LocalTrackingUri"
+Write-Host "  Docker tracking URI:  $DockerTrackingUri"
+Write-Host "  Bind host:            $MlflowHost"
 Write-Host "  Backend store: postgresql://${PostgresUser}:***@${PostgresHost}:${PostgresPort}/${MlflowDatabase}"
 Write-Host "  Artifacts:     $ArtifactRootPath"
 Write-Host "  Artifact URI:  $ArtifactRootUri"
 Write-Host ""
 Write-Host "Set before training:"
-Write-Host "  `$env:MLFLOW_TRACKING_URI = `"$TrackingUri`""
+Write-Host "  `$env:MLFLOW_TRACKING_URI = `"$LocalTrackingUri`""
 
 $MlflowExe = Join-Path $ProjectRoot ".venv/Scripts/mlflow.exe"
 if (Test-Path $MlflowExe) {
@@ -64,11 +68,13 @@ if (Test-Path $MlflowExe) {
         --backend-store-uri $BackendStoreUri `
         --default-artifact-root $ArtifactRootUri `
         --host $MlflowHost `
-        --port $MlflowPort
+        --port $MlflowPort `
+        --allowed-hosts "127.0.0.1,127.0.0.1:5000,localhost,localhost:5000,host.docker.internal,host.docker.internal:5000"
 } else {
     mlflow server `
         --backend-store-uri $BackendStoreUri `
         --default-artifact-root $ArtifactRootUri `
         --host $MlflowHost `
-        --port $MlflowPort
+        --port $MlflowPort `
+        --allowed-hosts "127.0.0.1,127.0.0.1:5000,localhost,localhost:5000,host.docker.internal,host.docker.internal:5000"
 }

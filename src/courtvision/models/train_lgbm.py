@@ -399,6 +399,7 @@ def log_best_model_artifacts(
     model_info = mlflow.sklearn.log_model(
         model,
         name="model",
+        serialization_format=mlflow.sklearn.SERIALIZATION_FORMAT_CLOUDPICKLE,
         registered_model_name=REGISTERED_MODEL_NAME if register_candidate else None,
         tags={"candidate": "true"} if register_candidate else None,
     )
