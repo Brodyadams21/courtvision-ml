@@ -139,14 +139,29 @@ Small differences can happen across dependency versions, but large differences s
 
 Direct dependencies are listed in `requirements.in`.
 
-The pinned install file is `requirements.txt` and is generated with:
+The local/Windows pinned install file is `requirements.txt` and is generated with:
 
 ```powershell
 python -m piptools compile --resolver=backtracking --output-file requirements.txt requirements.in
 ```
 
-Install dependencies with:
+The Linux/Docker/CI pinned install file is `requirements-linux.txt` and is generated inside Docker with:
+
+```powershell
+docker build -f Dockerfile.lock -t courtvision-lock:linux .
+docker create --name courtvision-lock-temp courtvision-lock:linux
+docker cp courtvision-lock-temp:/app/requirements-linux.txt requirements-linux.txt
+docker rm courtvision-lock-temp
+```
+
+Local install:
 
 ```powershell
 pip install -r requirements.txt
+```
+
+Docker and CI install:
+
+```powershell
+pip install -r requirements-linux.txt
 ```
