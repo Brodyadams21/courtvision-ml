@@ -54,9 +54,11 @@ def test_load_project_config_keeps_s3_prefixes_as_strings() -> None:
     assert config.s3_prefixes == {
         "raw": "raw/",
         "processed": "processed/",
-        "features": "features/",
+        "features": "processed/features/",
         "models": "model_artifacts/",
         "reports": "reports/",
+        "sagemaker_output": "sagemaker-output/",
+        "mlflow_artifacts": "mlflow-artifacts/",
     }
 
 
