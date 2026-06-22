@@ -1,0 +1,12 @@
+{
+  "environment": "sagemaker",
+  "model": "lightgbm",
+  "mode": "default",
+  "season": "2024-25",
+  "metrics": {
+    "auc": 0.6469948320500034,
+    "log_loss": 0.6498274649765974,
+    "brier_score": 0.2293493757717058,
+    "accuracy": 0.6218307127045346
+  }
+}

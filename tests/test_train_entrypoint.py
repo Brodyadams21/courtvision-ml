@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import pytest
@@ -73,6 +74,46 @@ def test_default_mode_calls_run_default(
     assert calls[0]["mlflow_tracking_uri"] is None
 
 
+def test_default_mode_writes_training_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    model_dir = tmp_path / "model_artifacts"
+    config = ProjectConfig(
+        environment="local",
+        data_dir=tmp_path / "data",
+        model_dir=model_dir,
+    )
+
+    def fake_run_default(
+        season: str,
+        *,
+        processed_dir: Path | None = None,
+        log_mlflow: bool = True,
+        mlflow_tracking_uri: str | None = None,
+    ) -> dict[str, float]:
+        return {"auc": 0.8123, "log_loss": 0.4512}
+
+    monkeypatch.setattr(
+        train_entrypoint,
+        "load_project_config",
+        lambda _path: config,
+    )
+    monkeypatch.setattr(train_entrypoint.train_lgbm, "run_default", fake_run_default)
+
+    train_entrypoint.run_from_args(_base_args(mode="default", no_mlflow=True))
+
+    summary_path = model_dir / "training_summary.json"
+    assert summary_path.is_file()
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["environment"] == "local"
+    assert summary["model"] == "lightgbm"
+    assert summary["mode"] == "default"
+    assert summary["season"] == "2024-25"
+    assert summary["metrics"]["auc"] == 0.8123
+    assert summary["metrics"]["log_loss"] == 0.4512
+
+
 def test_search_mode_calls_run_search(
     monkeypatch: pytest.MonkeyPatch,
     local_project_config: ProjectConfig,
@@ -98,7 +139,14 @@ def test_search_mode_calls_run_search(
                 "mlflow_tracking_uri": mlflow_tracking_uri,
             }
         )
-        return {"config_index": 0}
+        return {
+            "config_index": 0,
+            "params": {},
+            "validation_log_loss": 0.5,
+            "validation_auc": 0.6,
+            "test_log_loss": 0.55,
+            "test_auc": 0.58,
+        }
 
     monkeypatch.setattr(
         train_entrypoint,
@@ -177,7 +225,14 @@ def test_search_mode_passes_mlflow_tracking_uri_from_config(
         mlflow_tracking_uri: str | None = None,
     ) -> dict[str, object]:
         calls.append({"mlflow_tracking_uri": mlflow_tracking_uri})
-        return {"config_index": 0}
+        return {
+            "config_index": 0,
+            "params": {},
+            "validation_log_loss": 0.5,
+            "validation_auc": 0.6,
+            "test_log_loss": 0.55,
+            "test_auc": 0.58,
+        }
 
     monkeypatch.setattr(
         train_entrypoint,

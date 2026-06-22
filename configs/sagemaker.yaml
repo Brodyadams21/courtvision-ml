@@ -1,0 +1,15 @@
+environment: sagemaker
+data_dir: /opt/ml/input/data
+model_dir: /opt/ml/model
+aws_region: us-east-1
+s3_bucket: ""
+s3_prefixes:
+  raw: raw/
+  processed: processed/
+  features: processed/features/
+  models: model_artifacts/
+  reports: reports/
+  sagemaker_output: sagemaker-output/
+  mlflow_artifacts: mlflow-artifacts/
+mlflow_tracking_uri: ""
+database_url: ""

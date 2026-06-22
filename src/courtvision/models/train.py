@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
+from typing import Any
 
 from courtvision.data.collect import DEFAULT_SEASON
 from courtvision.models import train_lgbm
@@ -74,6 +76,50 @@ def _validate_cli_args(args: argparse.Namespace) -> None:
         raise SystemExit("--register-candidate cannot be used with --no-mlflow")
 
 
+def build_training_summary(
+    config: ProjectConfig,
+    *,
+    model: str,
+    mode: str,
+    season: str,
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    """Build a JSON-serializable training summary from a trainer result."""
+    summary: dict[str, Any] = {
+        "environment": config.environment,
+        "model": model,
+        "mode": mode,
+        "season": season,
+    }
+    if mode == "search":
+        summary.update(
+            {
+                "best_config_index": result["config_index"],
+                "validation_log_loss": result["validation_log_loss"],
+                "validation_auc": result["validation_auc"],
+                "test_log_loss": result["test_log_loss"],
+                "test_auc": result["test_auc"],
+            }
+        )
+    else:
+        summary["metrics"] = result
+    return summary
+
+
+def write_training_summary(
+    config: ProjectConfig,
+    summary: dict[str, Any],
+) -> Path | None:
+    """Write ``training_summary.json`` under ``config.model_dir`` when configured."""
+    if config.model_dir is None:
+        return None
+
+    config.model_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = config.model_dir / "training_summary.json"
+    summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    return summary_path
+
+
 def run_from_args(args: argparse.Namespace) -> None:
     """Route CLI arguments to the selected model trainer."""
     _validate_cli_args(args)
@@ -84,7 +130,7 @@ def run_from_args(args: argparse.Namespace) -> None:
 
     if args.model == "lightgbm":
         if args.mode == "search":
-            train_lgbm.run_search(
+            result = train_lgbm.run_search(
                 args.season,
                 processed_dir=processed_dir,
                 inner_train_fraction=args.inner_train_fraction,
@@ -92,14 +138,22 @@ def run_from_args(args: argparse.Namespace) -> None:
                 register_candidate=args.register_candidate,
                 mlflow_tracking_uri=config.mlflow_tracking_uri or None,
             )
-            return
+        else:
+            result = train_lgbm.run_default(
+                args.season,
+                processed_dir=processed_dir,
+                log_mlflow=log_mlflow,
+                mlflow_tracking_uri=config.mlflow_tracking_uri or None,
+            )
 
-        train_lgbm.run_default(
-            args.season,
-            processed_dir=processed_dir,
-            log_mlflow=log_mlflow,
-            mlflow_tracking_uri=config.mlflow_tracking_uri or None,
+        summary = build_training_summary(
+            config,
+            model=args.model,
+            mode=args.mode,
+            season=args.season,
+            result=result,
         )
+        write_training_summary(config, summary)
 
 
 def main() -> None:
