@@ -49,6 +49,12 @@ blinker==1.9.0
     # via
     #   flask
     #   streamlit
+boto3==1.43.34
+    # via -r requirements.in
+botocore==1.43.34
+    # via
+    #   boto3
+    #   s3transfer
 cachetools==7.1.4
     # via
     #   mlflow-skinny
@@ -73,6 +79,11 @@ click==8.4.1
     #   uvicorn
 cloudpickle==3.1.2
     # via mlflow-skinny
+colorama==0.4.6
+    # via
+    #   click
+    #   ipython
+    #   pytest
 comm==0.2.3
     # via
     #   ipykernel
@@ -83,12 +94,6 @@ cryptography==48.0.1
     # via
     #   google-auth
     #   mlflow
-cuda-bindings==13.3.1
-    # via torch
-cuda-pathfinder==1.5.5
-    # via cuda-bindings
-cuda-toolkit==13.0.2
-    # via torch
 cycler==0.12.1
     # via matplotlib
 databricks-sdk==0.118.0
@@ -147,8 +152,6 @@ graphql-relay==3.2.0
     # via graphene
 greenlet==3.5.2
     # via sqlalchemy
-gunicorn==26.0.0
-    # via mlflow
 h11==0.16.0
     # via
     #   httpcore
@@ -204,6 +207,10 @@ jinja2==3.1.6
     #   nbconvert
     #   pydeck
     #   torch
+jmespath==1.1.0
+    # via
+    #   boto3
+    #   botocore
 joblib==1.5.3
     # via
     #   -r requirements.in
@@ -355,49 +362,6 @@ numpy==2.4.6
     #   streamlit
     #   torchvision
     #   xgboost
-nvidia-cublas==13.1.1.3
-    # via
-    #   nvidia-cudnn-cu13
-    #   nvidia-cusolver
-    #   torch
-nvidia-cuda-cupti==13.0.85
-    # via cuda-toolkit
-nvidia-cuda-nvrtc==13.0.88
-    # via
-    #   cuda-toolkit
-    #   nvidia-cublas
-nvidia-cuda-runtime==13.0.96
-    # via cuda-toolkit
-nvidia-cudnn-cu13==9.20.0.48
-    # via torch
-nvidia-cufft==12.0.0.61
-    # via cuda-toolkit
-nvidia-cufile==1.15.1.6
-    # via cuda-toolkit
-nvidia-curand==10.4.0.35
-    # via cuda-toolkit
-nvidia-cusolver==12.0.4.66
-    # via cuda-toolkit
-nvidia-cusparse==12.6.3.3
-    # via
-    #   cuda-toolkit
-    #   nvidia-cusolver
-nvidia-cusparselt-cu13==0.8.1
-    # via torch
-nvidia-nccl-cu12==2.30.7
-    # via xgboost
-nvidia-nccl-cu13==2.29.7
-    # via torch
-nvidia-nvjitlink==13.0.88
-    # via
-    #   cuda-toolkit
-    #   nvidia-cufft
-    #   nvidia-cusolver
-    #   nvidia-cusparse
-nvidia-nvshmem-cu13==3.4.5
-    # via torch
-nvidia-nvtx==13.0.85
-    # via cuda-toolkit
 opentelemetry-api==1.42.1
     # via
     #   mlflow-skinny
@@ -419,7 +383,6 @@ overrides==7.7.0
 packaging==26.2
     # via
     #   altair
-    #   gunicorn
     #   ipykernel
     #   jupyter-events
     #   jupyter-server
@@ -447,8 +410,6 @@ pandocfilters==1.5.1
     # via nbconvert
 parso==0.8.7
     # via jedi
-pexpect==4.9.0
-    # via ipython
 pillow==12.2.0
     # via
     #   matplotlib
@@ -485,10 +446,6 @@ psutil==7.2.2
     #   ipython
 psycopg2-binary==2.9.12
     # via -r requirements.in
-ptyprocess==0.7.0
-    # via
-    #   pexpect
-    #   terminado
 pure-eval==0.2.3
     # via stack-data
 pyarrow==24.0.0
@@ -527,6 +484,7 @@ pytest==9.1.0
 python-dateutil==2.9.0.post0
     # via
     #   arrow
+    #   botocore
     #   graphene
     #   jupyter-client
     #   matplotlib
@@ -541,6 +499,13 @@ python-multipart==0.0.32
     # via streamlit
 pytz==2026.2
     # via pandas
+pywin32==312
+    # via docker
+pywinpty==3.0.5
+    # via
+    #   jupyter-server
+    #   jupyter-server-terminals
+    #   terminado
 pyyaml==6.0.3
     # via
     #   -r requirements.in
@@ -582,6 +547,8 @@ rpds-py==2026.5.1
     #   referencing
 ruff==0.15.18
     # via -r requirements.in
+s3transfer==0.19.0
+    # via boto3
 scikit-learn==1.9.0
     # via
     #   -r requirements.in
@@ -670,8 +637,6 @@ traitlets==5.15.1
     #   nbclient
     #   nbconvert
     #   nbformat
-triton==3.7.1
-    # via torch
 typeguard==4.5.2
     # via pandera
 typing-extensions==4.15.0
@@ -715,6 +680,7 @@ uri-template==1.3.0
     # via jsonschema
 urllib3==2.7.0
     # via
+    #   botocore
     #   databricks-sdk
     #   docker
     #   requests
@@ -723,6 +689,8 @@ uvicorn==0.49.0
     #   -r requirements.in
     #   mlflow-skinny
     #   streamlit
+waitress==3.0.2
+    # via mlflow
 watchdog==6.0.0
     # via streamlit
 wcwidth==0.8.1

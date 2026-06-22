@@ -18,6 +18,7 @@ python-dotenv
 mlflow
 pytest
 requests
+boto3
 nba-api
 pyarrow
 ruff
