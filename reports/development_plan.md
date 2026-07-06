@@ -8,7 +8,7 @@ This is the repository-facing status snapshot for the 13-phase CourtVision ML de
 
 The project is **through Phase 8**, has **partial Phase 9 cloud infrastructure**, has a **basic Phase 10 local FastAPI inference service**, and has a **complete local Phase 11 Streamlit analytics dashboard**. **Phase 12 monitoring** remains not started. **Phase 13 documentation and portfolio polish** are in progress.
 
-Phase 9 cloud execution is still **blocked/incomplete**: managed SageMaker training has not successfully run, and S3 transfer plus cloud registry verification remain open.
+Phase 9 cloud execution is still **blocked/incomplete**: managed SageMaker training has not successfully run (quota/capacity limits), and reproducible pipeline/dry-run documentation plus cloud registry verification remain open. S3 bucket setup and processed feature upload are already complete.
 
 | Phase | Goal | Status | Evidence / remaining work |
 |------:|------|--------|---------------------------|
@@ -21,7 +21,7 @@ Phase 9 cloud execution is still **blocked/incomplete**: managed SageMaker train
 | 6 | LightGBM candidate and registry | Complete | Time-based search, leakage audit, feature importance, MLflow model logging, and Candidate alias workflow |
 | 7 | PyTorch and spatial/sequence modeling | Complete, exceeds plan | Tabular/spatial MLPs plus GRU v3 with prior-event sequences, pressure features, inference bundle, tests, and report |
 | 8 | Expected shot value and player evaluation | Complete | GRU scoring, ESV/actual/above-expected calculations, player/team/zone/trend summaries, and basketball insights |
-| 9 | Cloud-assisted training | In progress / blocked | Config-driven local runner, Docker image, Linux lock, and MLflow wiring complete; S3 transfer, SageMaker pipeline/job, and cloud registry verification remain; managed training not yet run successfully |
+| 9 | Cloud-assisted training | In progress / blocked | Config-driven local runner, Docker image, Linux lock, MLflow wiring, S3 bucket setup, and processed feature upload complete; managed SageMaker training, reproducible pipeline/dry-run documentation, and cloud registry verification remain |
 | 10 | FastAPI inference service | Partial / local complete | `courtvision.api` has `/health` and `/predict/shot`, Pydantic schemas, `ShotModelService`, and tests; batch endpoint, startup model loading, request/response logging, Docker/API image, and production deployment docs remain |
 | 11 | Streamlit dashboard | Complete local dashboard | Six-tab Streamlit dashboard, MLflow Candidate scoring, model diagnostics, Shot Edge Explorer, Edge Backtest, CSV exports, and `docs/dashboard.md` |
 | 12 | Monitoring and retraining | Not started | Monitoring modules are empty; drift, segment calibration, reports, triggers, and dashboard integration remain |
@@ -35,7 +35,7 @@ Phase 10 and Phase 11 were advanced locally while Phase 9 cloud execution remain
 
 Phase 9 should not be marked complete until all of the following are true:
 
-- Processed features or a representative training subset can be uploaded to the configured S3 layout.
+- Processed features or a representative training subset have been uploaded, or the upload path is documented and reproducible.
 - `pipelines/sagemaker_pipeline.py` creates or submits a reproducible managed training workflow.
 - At least one cloud training job succeeds, or a fully documented dry run proves the generated job specification without claiming execution.
 - Training metrics and artifacts reach a cloud-accessible MLflow backend or an explicitly documented equivalent.

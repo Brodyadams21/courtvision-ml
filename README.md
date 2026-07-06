@@ -46,7 +46,7 @@ flowchart LR
 |------|--------|
 | Data, validation, features, baseline, candidate, deep learning, and basketball evaluation | Complete |
 | Local and Docker training path | Complete |
-| AWS/SageMaker training path | Configuration only; S3 upload and cloud execution remain |
+| AWS/SageMaker training path | Partial cloud setup; S3 bucket and processed feature upload completed, managed SageMaker training blocked by quota/capacity, cloud MLflow/registry verification remains |
 | FastAPI serving | Basic local inference endpoint complete (`/health`, `/predict/shot`) |
 | Streamlit analytics dashboard | Complete local dashboard (six tabs, CSV export) |
 | Monitoring | Planned |
@@ -289,7 +289,7 @@ pytest
 | **Dashboard polish** | Player/team evaluation pages, saved screenshots, richer model comparison (LightGBM vs. GRU), optional deployed demo |
 | **Calibration** | Platt / isotonic review by shot type and zone; compare GRU vs. LightGBM bins |
 | **Monitoring** | Data drift, prediction drift, calibration tracking, retraining triggers |
-| **Cloud** | Upload data/artifacts to S3, implement `sagemaker_pipeline.py`, run at least one managed training job or documented dry run, and connect cloud MLflow tracking |
+| **Cloud** | Implement `sagemaker_pipeline.py`, run at least one managed training job or documented dry run (blocked by quota/capacity), and connect cloud MLflow tracking |
 | **Data** | Multi-season training (2025-26+), lineup and defender-distance features |
 | **Registry** | Formal Champion promotion criteria for GRU after API, calibration, and monitoring gates |
 
