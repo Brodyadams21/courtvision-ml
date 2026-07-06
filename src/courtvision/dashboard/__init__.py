@@ -25,6 +25,12 @@ from courtvision.dashboard.data import (
     summarize_by_distance_bucket,
     top_feature_importance,
 )
+from courtvision.dashboard.prediction import (
+    DashboardPredictionResult,
+    PredictionUnavailable,
+    create_model_service,
+    predict_prepared_shot,
+)
 
 __all__ = [
     "DEFAULT_FEATURE_IMPORTANCE_GAIN_CSV",
@@ -34,18 +40,22 @@ __all__ = [
     "PREDICTION_DISPLAY_COLUMNS",
     "PREDICTION_FEATURE_COLUMNS",
     "PREDICTION_ROW_ID_COLUMN",
+    "DashboardPredictionResult",
     "ModelPerformanceSummary",
     "OverviewStats",
+    "PredictionUnavailable",
     "PreparedPredictionFeatures",
     "ShotQualitySummary",
     "add_distance_bucket",
     "compute_overview_stats",
     "compute_shot_quality_summary",
+    "create_model_service",
     "filter_shots",
     "get_prediction_row",
     "load_dashboard_splits",
     "load_feature_importance",
     "load_training_summary",
+    "predict_prepared_shot",
     "prepare_prediction_features",
     "sample_prediction_rows",
     "summarize_by_distance_bucket",

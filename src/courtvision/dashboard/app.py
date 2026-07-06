@@ -28,6 +28,14 @@ from courtvision.dashboard.data import (  # noqa: E402
     summarize_by_distance_bucket,
     top_feature_importance,
 )
+from courtvision.dashboard.prediction import (  # noqa: E402
+    PREDICTION_UNAVAILABLE_MESSAGE,
+    PredictionUnavailable,
+    predict_prepared_shot,
+)
+from courtvision.dashboard.prediction import (  # noqa: E402
+    create_model_service as _create_model_service,
+)
 from courtvision.data.collect import DEFAULT_SEASON  # noqa: E402
 from courtvision.models.common import FEATURE_COLUMNS, TARGET_COLUMN  # noqa: E402
 
@@ -47,6 +55,14 @@ def _format_percent_value(value: float | None) -> str:
 @st.cache_data
 def _load_cached_splits() -> tuple[pd.DataFrame, pd.DataFrame]:
     return load_dashboard_splits(DEFAULT_SEASON)
+
+
+@st.cache_resource
+def _load_model_service():
+    try:
+        return _create_model_service()
+    except PredictionUnavailable:
+        return None
 
 
 def _load_splits() -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -335,8 +351,35 @@ def _render_prediction_playground(test: pd.DataFrame) -> None:
     st.markdown("#### Model input preview")
     st.code(json.dumps(request_preview, indent=2), language="json")
 
-    st.info("Model prediction will be wired in the next task.")
-    st.button("Predict make probability", disabled=True)
+    model_service = _load_model_service()
+    if model_service is None:
+        st.warning(PREDICTION_UNAVAILABLE_MESSAGE)
+
+    if st.button("Predict make probability", disabled=model_service is None):
+        try:
+            result = predict_prepared_shot(prepared, service=model_service)
+        except PredictionUnavailable:
+            st.warning(PREDICTION_UNAVAILABLE_MESSAGE)
+        except (KeyError, ValueError) as exc:
+            st.error(str(exc))
+        else:
+            st.markdown("#### Prediction result")
+            result_col1, result_col2, result_col3, result_col4 = st.columns(4)
+
+            with result_col1:
+                st.metric(
+                    "Predicted make probability",
+                    f"{result.predicted_make_probability:.1%}",
+                )
+            with result_col2:
+                st.metric(
+                    "Expected shot value",
+                    f"{result.expected_shot_value:.2f}",
+                )
+            with result_col3:
+                st.metric("Actual result", _format_shot_result(row[TARGET_COLUMN]))
+            with result_col4:
+                st.metric("Model", result.model_name)
 
 
 def main() -> None:
