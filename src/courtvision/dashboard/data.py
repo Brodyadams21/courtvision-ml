@@ -15,7 +15,8 @@ from courtvision.utils.config import PROJECT_ROOT
 
 DEFAULT_TRAINING_SUMMARY_PATH = PROJECT_ROOT / "model_artifacts" / "training_summary.json"
 REQUIRED_SUMMARY_FIELDS: tuple[str, ...] = ("environment", "model", "mode", "season")
-REQUIRED_METRIC_FIELDS: tuple[str, ...] = ("auc", "log_loss", "brier_score", "accuracy")
+REQUIRED_DEFAULT_METRIC_FIELDS: tuple[str, ...] = ("auc", "log_loss", "brier_score", "accuracy")
+REQUIRED_SEARCH_TEST_FIELDS: tuple[str, ...] = ("test_auc", "test_log_loss")
 
 DISTANCE_BUCKET_LABELS: tuple[str, ...] = (
     "0-5 ft",
@@ -63,8 +64,11 @@ class ModelPerformanceSummary:
     season: str
     auc: float
     log_loss: float
-    brier_score: float
-    accuracy: float
+    brier_score: float | None
+    accuracy: float | None
+    validation_auc: float | None
+    validation_log_loss: float | None
+    best_config_index: int | None
     summary_path: Path
 
 
@@ -227,6 +231,11 @@ def load_training_summary(
     if not summary_path.is_file():
         return None
 
+    payload = _read_training_summary_payload(summary_path)
+    return _parse_training_summary(payload, summary_path)
+
+
+def _read_training_summary_payload(summary_path: Path) -> dict[str, object]:
     try:
         payload = json.loads(summary_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
@@ -241,23 +250,92 @@ def load_training_summary(
         if field not in payload:
             raise ValueError(f"Training summary missing required field: {field}")
 
+    return payload
+
+
+def _parse_training_summary(
+    payload: dict[str, object],
+    summary_path: Path,
+) -> ModelPerformanceSummary:
+    mode = str(payload["mode"])
+    base_kwargs = {
+        "environment": str(payload["environment"]),
+        "model": str(payload["model"]),
+        "mode": mode,
+        "season": str(payload["season"]),
+        "summary_path": summary_path,
+    }
+
+    if mode == "default":
+        return _parse_default_training_summary(payload, **base_kwargs)
+    if mode == "search":
+        return _parse_search_training_summary(payload, **base_kwargs)
+
+    raise ValueError(f"Unsupported training summary mode: {mode}")
+
+
+def _parse_default_training_summary(
+    payload: dict[str, object],
+    **base_kwargs: object,
+) -> ModelPerformanceSummary:
     metrics = payload.get("metrics")
     if not isinstance(metrics, dict):
         raise ValueError("Training summary missing required field: metrics")
 
-    missing_metrics = [field for field in REQUIRED_METRIC_FIELDS if field not in metrics]
+    missing_metrics = [
+        field for field in REQUIRED_DEFAULT_METRIC_FIELDS if field not in metrics
+    ]
     if missing_metrics:
         missing = ", ".join(missing_metrics)
         raise ValueError(f"Training summary metrics missing required field(s): {missing}")
 
     return ModelPerformanceSummary(
-        environment=str(payload["environment"]),
-        model=str(payload["model"]),
-        mode=str(payload["mode"]),
-        season=str(payload["season"]),
         auc=float(metrics["auc"]),
         log_loss=float(metrics["log_loss"]),
         brier_score=float(metrics["brier_score"]),
         accuracy=float(metrics["accuracy"]),
-        summary_path=summary_path,
+        validation_auc=None,
+        validation_log_loss=None,
+        best_config_index=None,
+        **base_kwargs,
+    )
+
+
+def _parse_search_training_summary(
+    payload: dict[str, object],
+    **base_kwargs: object,
+) -> ModelPerformanceSummary:
+    missing_fields = [field for field in REQUIRED_SEARCH_TEST_FIELDS if field not in payload]
+    if missing_fields:
+        missing = ", ".join(missing_fields)
+        raise ValueError(f"Training summary missing required search-mode field(s): {missing}")
+
+    metrics = payload.get("metrics")
+    brier_score: float | None = None
+    accuracy: float | None = None
+    if isinstance(metrics, dict):
+        if "brier_score" in metrics:
+            brier_score = float(metrics["brier_score"])
+        if "accuracy" in metrics:
+            accuracy = float(metrics["accuracy"])
+
+    validation_auc = (
+        float(payload["validation_auc"]) if "validation_auc" in payload else None
+    )
+    validation_log_loss = (
+        float(payload["validation_log_loss"]) if "validation_log_loss" in payload else None
+    )
+    best_config_index = (
+        int(payload["best_config_index"]) if "best_config_index" in payload else None
+    )
+
+    return ModelPerformanceSummary(
+        auc=float(payload["test_auc"]),
+        log_loss=float(payload["test_log_loss"]),
+        brier_score=brier_score,
+        accuracy=accuracy,
+        validation_auc=validation_auc,
+        validation_log_loss=validation_log_loss,
+        best_config_index=best_config_index,
+        **base_kwargs,
     )

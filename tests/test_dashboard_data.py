@@ -248,7 +248,105 @@ def test_load_training_summary_reads_default_mode_metrics_correctly(tmp_path: Pa
     assert summary.log_loss == pytest.approx(0.6495)
     assert summary.brier_score == pytest.approx(0.2292)
     assert summary.accuracy == pytest.approx(0.6213)
+    assert summary.validation_auc is None
+    assert summary.validation_log_loss is None
+    assert summary.best_config_index is None
     assert summary.summary_path == summary_path.resolve()
+
+
+def test_load_training_summary_reads_search_mode_summary_correctly(tmp_path: Path) -> None:
+    summary_path = tmp_path / "training_summary.json"
+    _write_training_summary(
+        summary_path,
+        {
+            "environment": "local",
+            "model": "lightgbm",
+            "mode": "search",
+            "season": "2024-25",
+            "best_config_index": 3,
+            "validation_log_loss": 0.648,
+            "validation_auc": 0.651,
+            "test_log_loss": 0.646,
+            "test_auc": 0.652,
+        },
+    )
+
+    summary = load_training_summary(summary_path)
+
+    assert summary is not None
+    assert summary.mode == "search"
+    assert summary.auc == pytest.approx(0.652)
+    assert summary.log_loss == pytest.approx(0.646)
+    assert summary.validation_auc == pytest.approx(0.651)
+    assert summary.validation_log_loss == pytest.approx(0.648)
+    assert summary.best_config_index == 3
+
+
+def test_load_training_summary_handles_optional_missing_brier_and_accuracy_for_search_mode(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "training_summary.json"
+    _write_training_summary(
+        summary_path,
+        {
+            "environment": "local",
+            "model": "lightgbm",
+            "mode": "search",
+            "season": "2024-25",
+            "test_log_loss": 0.646,
+            "test_auc": 0.652,
+        },
+    )
+
+    summary = load_training_summary(summary_path)
+
+    assert summary is not None
+    assert summary.brier_score is None
+    assert summary.accuracy is None
+    assert summary.validation_auc is None
+    assert summary.validation_log_loss is None
+    assert summary.best_config_index is None
+
+
+def test_load_training_summary_raises_value_error_for_malformed_json(tmp_path: Path) -> None:
+    summary_path = tmp_path / "training_summary.json"
+    summary_path.write_text("{not valid json", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Malformed training summary JSON"):
+        load_training_summary(summary_path)
+
+
+def test_load_training_summary_raises_value_error_when_top_level_is_not_object(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "training_summary.json"
+    summary_path.write_text("[1, 2, 3]", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Expected training summary object"):
+        load_training_summary(summary_path)
+
+
+def test_load_training_summary_raises_value_error_when_metadata_fields_are_missing(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "training_summary.json"
+    _write_training_summary(
+        summary_path,
+        {
+            "model": "lightgbm",
+            "mode": "default",
+            "season": "2024-25",
+            "metrics": {
+                "auc": 0.6479,
+                "log_loss": 0.6495,
+                "brier_score": 0.2292,
+                "accuracy": 0.6213,
+            },
+        },
+    )
+
+    with pytest.raises(ValueError, match="missing required field: environment"):
+        load_training_summary(summary_path)
 
 
 def test_load_training_summary_raises_value_error_when_metrics_are_missing(tmp_path: Path) -> None:

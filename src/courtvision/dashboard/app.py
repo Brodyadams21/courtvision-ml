@@ -23,9 +23,26 @@ from courtvision.dashboard.data import (  # noqa: E402
 from courtvision.data.collect import DEFAULT_SEASON  # noqa: E402
 
 
+def _format_metric_value(value: float | None, *, precision: int = 4) -> str:
+    if value is None:
+        return "—"
+    return f"{value:.{precision}f}"
+
+
+def _format_percent_value(value: float | None) -> str:
+    if value is None:
+        return "—"
+    return f"{value:.1%}"
+
+
+@st.cache_data
+def _load_cached_splits() -> tuple[pd.DataFrame, pd.DataFrame]:
+    return load_dashboard_splits(DEFAULT_SEASON)
+
+
 def _load_splits() -> tuple[pd.DataFrame, pd.DataFrame]:
     try:
-        return load_dashboard_splits(DEFAULT_SEASON)
+        return _load_cached_splits()
     except FileNotFoundError as exc:
         st.error(
             "Could not load train/test feature files. "
@@ -147,27 +164,56 @@ def _render_model_performance() -> None:
         )
         return
 
-    meta_col1, meta_col2, meta_col3, meta_col4 = st.columns(4)
-
-    with meta_col1:
-        st.metric("Model", summary.model)
-    with meta_col2:
-        st.metric("Mode", summary.mode)
-    with meta_col3:
-        st.metric("Environment", summary.environment)
-    with meta_col4:
-        st.metric("Season", summary.season)
+    metadata = pd.DataFrame(
+        {
+            "Field": ["Model", "Mode", "Environment", "Season", "Summary path"],
+            "Value": [
+                summary.model,
+                summary.mode,
+                summary.environment,
+                summary.season,
+                str(summary.summary_path),
+            ],
+        }
+    )
+    st.dataframe(metadata, use_container_width=True, hide_index=True)
 
     metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
 
     with metric_col1:
-        st.metric("AUC", f"{summary.auc:.4f}")
+        st.metric("AUC", _format_metric_value(summary.auc))
     with metric_col2:
-        st.metric("Log loss", f"{summary.log_loss:.4f}")
+        st.metric("Log loss", _format_metric_value(summary.log_loss))
     with metric_col3:
-        st.metric("Brier score", f"{summary.brier_score:.4f}")
+        st.metric("Brier score", _format_metric_value(summary.brier_score))
     with metric_col4:
-        st.metric("Accuracy", f"{summary.accuracy:.1%}")
+        st.metric("Accuracy", _format_percent_value(summary.accuracy))
+
+    if summary.mode == "search" and any(
+        value is not None
+        for value in (
+            summary.validation_auc,
+            summary.validation_log_loss,
+            summary.best_config_index,
+        )
+    ):
+        st.markdown("#### Validation metrics")
+        validation_col1, validation_col2, validation_col3 = st.columns(3)
+
+        with validation_col1:
+            st.metric("Validation AUC", _format_metric_value(summary.validation_auc))
+        with validation_col2:
+            st.metric(
+                "Validation log loss",
+                _format_metric_value(summary.validation_log_loss),
+            )
+        with validation_col3:
+            best_config = (
+                str(summary.best_config_index)
+                if summary.best_config_index is not None
+                else "—"
+            )
+            st.metric("Best config index", best_config)
 
     with st.expander("Raw training summary JSON"):
         st.code(summary.summary_path.read_text(encoding="utf-8"), language="json")
