@@ -16,6 +16,8 @@ import streamlit as st  # noqa: E402
 from courtvision.dashboard.data import (  # noqa: E402
     DEFAULT_FEATURE_IMPORTANCE_GAIN_PNG,
     PREDICTION_ROW_ID_COLUMN,
+    baseline_for_similar_shots,
+    compare_prediction_to_baseline,
     compute_overview_stats,
     compute_shot_quality_summary,
     filter_shots,
@@ -286,6 +288,65 @@ def _format_shot_result(made_flag: object) -> str:
     return "Made" if bool(made_flag) else "Missed"
 
 
+def _format_signed_points(value: float, *, precision: int = 2) -> str:
+    sign = "+" if value > 0 else ""
+    return f"{sign}{value:.{precision}f}"
+
+
+def _format_signed_percentage_points(value: float) -> str:
+    sign = "+" if value > 0 else ""
+    return f"{sign}{value * 100:.1f} percentage points"
+
+
+def _comparison_interpretation(probability_edge: float) -> str:
+    if probability_edge > 0:
+        return (
+            "For this selected shot, the model rates the attempt above the historical "
+            "baseline for similar shots."
+        )
+    if probability_edge < 0:
+        return (
+            "For this selected shot, the model rates the attempt below the historical "
+            "baseline for similar shots."
+        )
+    return (
+        "For this selected shot, the model rates the attempt in line with the historical "
+        "baseline for similar shots."
+    )
+
+
+def _render_prediction_comparison(
+    test: pd.DataFrame,
+    row: pd.Series,
+    result,
+) -> None:
+    baseline = baseline_for_similar_shots(test, row)
+    comparison = compare_prediction_to_baseline(result, row, baseline)
+
+    st.markdown("#### Prediction comparison")
+    st.caption("Model vs similar-shot baseline")
+
+    compare_col1, compare_col2, compare_col3 = st.columns(3)
+    with compare_col1:
+        st.metric("Model make probability", f"{comparison.predicted_make_probability:.1%}")
+        st.metric("Similar-shot baseline", f"{comparison.baseline_make_rate:.1%}")
+        st.metric(
+            "Probability difference",
+            _format_signed_percentage_points(comparison.probability_edge_vs_baseline),
+        )
+    with compare_col2:
+        st.metric("Model EV", f"{comparison.expected_shot_value:.2f}")
+        st.metric("Baseline EV", f"{comparison.baseline_expected_value:.2f}")
+        st.metric("EV difference", _format_signed_points(comparison.ev_edge_vs_baseline))
+    with compare_col3:
+        actual_points = comparison.actual_points
+        actual_points_label = "—" if actual_points is None else f"{actual_points:.0f}"
+        st.metric("Actual points", actual_points_label)
+        st.metric("Similar shot count", f"{comparison.similar_shot_count:,}")
+
+    st.info(_comparison_interpretation(comparison.probability_edge_vs_baseline))
+
+
 def _render_prediction_playground(test: pd.DataFrame) -> None:
     st.subheader("Prediction Playground")
     st.caption("Inspect real held-out test shots and prepare API-style model inputs.")
@@ -380,6 +441,8 @@ def _render_prediction_playground(test: pd.DataFrame) -> None:
                 st.metric("Actual result", _format_shot_result(row[TARGET_COLUMN]))
             with result_col4:
                 st.metric("Model", result.model_name)
+
+            _render_prediction_comparison(test, row, result)
 
 
 def main() -> None:

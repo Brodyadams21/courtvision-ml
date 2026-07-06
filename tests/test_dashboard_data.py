@@ -13,7 +13,11 @@ from courtvision.dashboard.data import (
     PREDICTION_DISPLAY_COLUMNS,
     PREDICTION_FEATURE_COLUMNS,
     PREDICTION_ROW_ID_COLUMN,
+    BaselineShotProfile,
+    actual_points_for_row,
     add_distance_bucket,
+    baseline_for_similar_shots,
+    compare_prediction_to_baseline,
     compute_overview_stats,
     compute_shot_quality_summary,
     filter_shots,
@@ -25,6 +29,7 @@ from courtvision.dashboard.data import (
     summarize_by_distance_bucket,
     top_feature_importance,
 )
+from courtvision.dashboard.prediction import DashboardPredictionResult
 from courtvision.models.common import FEATURE_COLUMNS, TARGET_COLUMN
 
 
@@ -520,6 +525,83 @@ def test_prepare_prediction_features_includes_all_remaining_expected_feature_col
 
     assert set(prepared.features) == set(PREDICTION_FEATURE_COLUMNS)
     assert len(prepared.features) == len(PREDICTION_FEATURE_COLUMNS)
+
+
+def test_actual_points_for_row_returns_shot_value_for_made_shot() -> None:
+    row = _shot_row(shot_made_flag=True, shot_value=3.0)
+
+    assert actual_points_for_row(row) == pytest.approx(3.0)
+
+
+def test_actual_points_for_row_returns_zero_for_missed_shot() -> None:
+    row = _shot_row(shot_made_flag=False, shot_value=2.0)
+
+    assert actual_points_for_row(row) == pytest.approx(0.0)
+
+
+def test_baseline_for_similar_shots_uses_same_shot_value_and_distance_bucket() -> None:
+    test = _shot_frame(
+        rows=[
+            _shot_row(shot_made_flag=True, shot_value=2.0, shot_distance=4.0),
+            _shot_row(shot_made_flag=False, shot_value=2.0, shot_distance=4.5),
+            _shot_row(shot_made_flag=True, shot_value=3.0, shot_distance=4.0),
+            _shot_row(shot_made_flag=True, shot_value=2.0, shot_distance=20.0),
+        ]
+    )
+    selected = _shot_row(shot_made_flag=True, shot_value=2.0, shot_distance=3.5)
+
+    baseline = baseline_for_similar_shots(test, selected)
+
+    assert baseline.shot_count == 2
+    assert baseline.make_rate == pytest.approx(0.5)
+
+
+def test_baseline_for_similar_shots_returns_make_rate_and_ev() -> None:
+    test = _shot_frame(
+        rows=[
+            _shot_row(shot_made_flag=True, shot_value=3.0, shot_distance=26.0),
+            _shot_row(shot_made_flag=False, shot_value=3.0, shot_distance=27.0),
+        ]
+    )
+    selected = _shot_row(shot_made_flag=True, shot_value=3.0, shot_distance=26.5)
+
+    baseline = baseline_for_similar_shots(test, selected)
+
+    assert baseline.make_rate == pytest.approx(0.5)
+    assert baseline.expected_value == pytest.approx(1.5)
+
+
+def test_compare_prediction_to_baseline_computes_probability_edge() -> None:
+    row = _shot_row(shot_made_flag=True, shot_value=2.0, shot_distance=4.0)
+    result = DashboardPredictionResult(
+        predicted_make_probability=0.432,
+        expected_shot_value=0.86,
+        model_name="test-model",
+    )
+    baseline = baseline_for_similar_shots(
+        _shot_frame(rows=[_shot_row(shot_made_flag=False, shot_value=2.0, shot_distance=4.0)]),
+        row,
+    )
+
+    comparison = compare_prediction_to_baseline(result, row, baseline)
+
+    assert comparison.probability_edge_vs_baseline == pytest.approx(0.432)
+
+
+def test_compare_prediction_to_baseline_computes_ev_edge() -> None:
+    row = _shot_row(shot_made_flag=False, shot_value=3.0, shot_distance=26.0)
+    result = DashboardPredictionResult(
+        predicted_make_probability=0.40,
+        expected_shot_value=1.20,
+        model_name="test-model",
+    )
+    baseline = BaselineShotProfile(shot_count=10, make_rate=0.35, expected_value=1.05)
+
+    comparison = compare_prediction_to_baseline(result, row, baseline)
+
+    assert comparison.ev_edge_vs_baseline == pytest.approx(0.15)
+    assert comparison.actual_points == pytest.approx(0.0)
+    assert comparison.actual_made is False
 
 
 def test_empty_filtered_data_does_not_crash() -> None:

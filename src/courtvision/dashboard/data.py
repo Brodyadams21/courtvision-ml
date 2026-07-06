@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 import pandas as pd
 
@@ -89,6 +90,31 @@ class ShotQualitySummary:
 class PreparedPredictionFeatures:
     features: dict[str, float]
     shot_value: int
+
+
+@dataclass(frozen=True)
+class BaselineShotProfile:
+    shot_count: int
+    make_rate: float
+    expected_value: float
+
+
+@dataclass(frozen=True)
+class PredictionComparison:
+    predicted_make_probability: float
+    expected_shot_value: float
+    actual_made: bool | None
+    actual_points: float | None
+    baseline_make_rate: float
+    baseline_expected_value: float
+    probability_edge_vs_baseline: float
+    ev_edge_vs_baseline: float
+    similar_shot_count: int
+
+
+class PredictionResultLike(Protocol):
+    predicted_make_probability: float
+    expected_shot_value: float
 
 
 @dataclass(frozen=True)
@@ -446,3 +472,71 @@ def prepare_prediction_features(row: pd.Series) -> PreparedPredictionFeatures:
     shot_value = int(row[SHOT_VALUE_COLUMN])
     features = {column: float(row[column]) for column in PREDICTION_FEATURE_COLUMNS}
     return PreparedPredictionFeatures(features=features, shot_value=shot_value)
+
+
+def _series_row(row: pd.Series | dict[str, object]) -> pd.Series:
+    if isinstance(row, pd.Series):
+        return row
+    return pd.Series(row)
+
+
+def actual_points_for_row(row: pd.Series | dict[str, object]) -> float | None:
+    """Return points scored on the attempt, or None when the outcome is unknown."""
+    series = _series_row(row)
+    if TARGET_COLUMN not in series.index or pd.isna(series[TARGET_COLUMN]):
+        return None
+    if bool(series[TARGET_COLUMN]):
+        return float(series[SHOT_VALUE_COLUMN])
+    return 0.0
+
+
+def baseline_for_similar_shots(
+    test: pd.DataFrame,
+    row: pd.Series | dict[str, object],
+) -> BaselineShotProfile:
+    """Compute historical make rate and EV for same shot value and distance bucket."""
+    series = _series_row(row)
+    shot_value = int(series[SHOT_VALUE_COLUMN])
+    row_bucket = add_distance_bucket(pd.DataFrame([series])).iloc[0][DISTANCE_BUCKET_COLUMN]
+    bucketed_test = add_distance_bucket(test)
+    similar = bucketed_test.loc[
+        (bucketed_test[SHOT_VALUE_COLUMN] == shot_value)
+        & (bucketed_test[DISTANCE_BUCKET_COLUMN] == row_bucket)
+    ]
+
+    shot_count = len(similar)
+    if shot_count == 0:
+        return BaselineShotProfile(shot_count=0, make_rate=0.0, expected_value=0.0)
+
+    make_rate = float(similar[TARGET_COLUMN].mean())
+    return BaselineShotProfile(
+        shot_count=shot_count,
+        make_rate=make_rate,
+        expected_value=make_rate * shot_value,
+    )
+
+
+def compare_prediction_to_baseline(
+    result: PredictionResultLike,
+    row: pd.Series | dict[str, object],
+    baseline: BaselineShotProfile,
+) -> PredictionComparison:
+    """Compare model prediction against a similar-shot historical baseline."""
+    series = _series_row(row)
+    actual_made: bool | None
+    if TARGET_COLUMN not in series.index or pd.isna(series[TARGET_COLUMN]):
+        actual_made = None
+    else:
+        actual_made = bool(series[TARGET_COLUMN])
+
+    return PredictionComparison(
+        predicted_make_probability=result.predicted_make_probability,
+        expected_shot_value=result.expected_shot_value,
+        actual_made=actual_made,
+        actual_points=actual_points_for_row(series),
+        baseline_make_rate=baseline.make_rate,
+        baseline_expected_value=baseline.expected_value,
+        probability_edge_vs_baseline=result.predicted_make_probability - baseline.make_rate,
+        ev_edge_vs_baseline=result.expected_shot_value - baseline.expected_value,
+        similar_shot_count=baseline.shot_count,
+    )
