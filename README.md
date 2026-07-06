@@ -47,7 +47,9 @@ flowchart LR
 | Data, validation, features, baseline, candidate, deep learning, and basketball evaluation | Complete |
 | Local and Docker training path | Complete |
 | AWS/SageMaker training path | Configuration only; S3 upload and cloud execution remain |
-| FastAPI serving, Streamlit dashboard, and monitoring | Planned; entry-point files are placeholders |
+| FastAPI serving | Basic local inference endpoint complete (`/health`, `/predict/shot`) |
+| Streamlit analytics dashboard | Complete local dashboard (six tabs, CSV export) |
+| Monitoring | Planned |
 | Final documentation and portfolio polish | In progress |
 
 See [`reports/development_plan.md`](reports/development_plan.md) for the phase-by-phase status.
@@ -123,6 +125,35 @@ All models train on the same 2024-25 Parquet export and evaluate on the identica
 LightGBM remains the registered **Candidate** (`courtvision-shot-make-model`) for simpler serving and registry-backed reproducibility. The GRU v3 model beats it on every reported test metric and drives the published expected-value report.
 
 Detailed write-ups: `reports/baseline_model_report.md`, `reports/lightgbm_candidate_report.md`, `reports/deep_learning_report.md`.
+
+---
+
+## Streamlit analytics dashboard
+
+A local **CourtVision Analytics** dashboard (`src/courtvision/dashboard/`) explores held-out test shots and scores predictions from the MLflow **Candidate** model (`courtvision-shot-make-model` @ `Candidate`).
+
+**Six tabs:**
+
+| Tab | Purpose |
+|-----|---------|
+| Overview | Train/test shot counts and make rates |
+| Shot Quality Explorer | Filter test shots by type, distance, and period |
+| Model Performance | LightGBM test metrics, feature importance, calibration plots |
+| Prediction Playground | Score one shot and compare to a similar-shot baseline |
+| Shot Edge Explorer | Rank a sampled batch by model EV edge; export CSV |
+| Edge Backtest | Bucket scored samples by edge and compare outcomes; export CSVs |
+
+Prediction tabs require MLflow running and a registered Candidate model. Shot Edge Explorer and Edge Backtest support CSV downloads (`courtvision_shot_edge_sample.csv`, `courtvision_edge_backtest_summary.csv`, `courtvision_edge_backtest_shots.csv`).
+
+**Run guide:** [`docs/dashboard.md`](docs/dashboard.md) · **Portfolio summary:** [`reports/dashboard_summary.md`](reports/dashboard_summary.md)
+
+```powershell
+$env:PYTHONPATH = "src"
+$env:MLFLOW_TRACKING_URI = "http://127.0.0.1:5000"
+.\scripts\start_mlflow.ps1
+# second terminal:
+streamlit run src/courtvision/dashboard/app.py
+```
 
 ---
 
@@ -237,6 +268,7 @@ pytest
 | Artifact | Path |
 |----------|------|
 | Basketball insights report | `reports/basketball_insights.md` |
+| Dashboard portfolio summary | `reports/dashboard_summary.md` |
 | Shot predictions (GRU v3) | `reports/tables/shot_predictions_2024-25_gru.csv` |
 | Shot predictions (earlier LightGBM export) | `reports/tables/shot_predictions_2024-25.csv` |
 | Generated LightGBM Candidate output | `reports/tables/shot_predictions_2024-25_candidate.csv` (created on demand; not currently tracked) |
@@ -253,8 +285,8 @@ pytest
 
 | Area | Planned |
 |------|---------|
-| **Serving** | FastAPI inference for single-shot and batch prediction; GRU bundle with sequence assembly |
-| **Dashboard** | Streamlit pages for shot quality, player evaluation, and model performance |
+| **Serving** | Harden FastAPI for production (startup model load, batch endpoint, GRU bundle with sequence assembly); no cloud deployment yet |
+| **Dashboard polish** | Player/team evaluation pages, saved screenshots, richer model comparison (LightGBM vs. GRU), optional deployed demo |
 | **Calibration** | Platt / isotonic review by shot type and zone; compare GRU vs. LightGBM bins |
 | **Monitoring** | Data drift, prediction drift, calibration tracking, retraining triggers |
 | **Cloud** | Upload data/artifacts to S3, implement `sagemaker_pipeline.py`, run at least one managed training job or documented dry run, and connect cloud MLflow tracking |
@@ -265,4 +297,4 @@ pytest
 
 ## Tech stack
 
-Python 3.11 · PostgreSQL · pandas · scikit-learn · LightGBM · PyTorch · MLflow · Docker · FastAPI (planned) · Streamlit (planned) · Pandera · nba-api · pytest · Ruff · GitHub Actions
+Python 3.11 · PostgreSQL · pandas · scikit-learn · LightGBM · PyTorch · MLflow · Docker · FastAPI · Streamlit · Pandera · nba-api · pytest · Ruff · GitHub Actions
