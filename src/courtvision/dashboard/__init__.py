@@ -1,6 +1,8 @@
 """CourtVision Streamlit dashboard."""
 
 from courtvision.dashboard.data import (
+    DEFAULT_FEATURE_IMPORTANCE_GAIN_CSV,
+    DEFAULT_FEATURE_IMPORTANCE_GAIN_PNG,
     DEFAULT_TRAINING_SUMMARY_PATH,
     DISTANCE_BUCKET_LABELS,
     ModelPerformanceSummary,
@@ -11,11 +13,15 @@ from courtvision.dashboard.data import (
     compute_shot_quality_summary,
     filter_shots,
     load_dashboard_splits,
+    load_feature_importance,
     load_training_summary,
     summarize_by_distance_bucket,
+    top_feature_importance,
 )
 
 __all__ = [
+    "DEFAULT_FEATURE_IMPORTANCE_GAIN_CSV",
+    "DEFAULT_FEATURE_IMPORTANCE_GAIN_PNG",
     "DEFAULT_TRAINING_SUMMARY_PATH",
     "DISTANCE_BUCKET_LABELS",
     "ModelPerformanceSummary",
@@ -26,6 +32,8 @@ __all__ = [
     "compute_shot_quality_summary",
     "filter_shots",
     "load_dashboard_splits",
+    "load_feature_importance",
     "load_training_summary",
     "summarize_by_distance_bucket",
+    "top_feature_importance",
 ]

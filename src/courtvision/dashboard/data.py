@@ -14,9 +14,21 @@ from courtvision.models.common import FEATURE_COLUMNS, TARGET_COLUMN, load_train
 from courtvision.utils.config import PROJECT_ROOT
 
 DEFAULT_TRAINING_SUMMARY_PATH = PROJECT_ROOT / "model_artifacts" / "training_summary.json"
+DEFAULT_FEATURE_IMPORTANCE_GAIN_CSV = (
+    PROJECT_ROOT / "reports" / "tables" / "lightgbm_feature_importance_gain.csv"
+)
+DEFAULT_FEATURE_IMPORTANCE_GAIN_PNG = (
+    PROJECT_ROOT / "reports" / "figures" / "lightgbm_feature_importance_gain.png"
+)
 REQUIRED_SUMMARY_FIELDS: tuple[str, ...] = ("environment", "model", "mode", "season")
 REQUIRED_DEFAULT_METRIC_FIELDS: tuple[str, ...] = ("auc", "log_loss", "brier_score", "accuracy")
 REQUIRED_SEARCH_TEST_FIELDS: tuple[str, ...] = ("test_auc", "test_log_loss")
+FEATURE_IMPORTANCE_FEATURE_COLUMN = "feature"
+FEATURE_IMPORTANCE_VALUE_COLUMN = "importance"
+REQUIRED_FEATURE_IMPORTANCE_COLUMNS: tuple[str, ...] = (
+    FEATURE_IMPORTANCE_FEATURE_COLUMN,
+    FEATURE_IMPORTANCE_VALUE_COLUMN,
+)
 
 DISTANCE_BUCKET_LABELS: tuple[str, ...] = (
     "0-5 ft",
@@ -339,3 +351,40 @@ def _parse_search_training_summary(
         best_config_index=best_config_index,
         **base_kwargs,
     )
+
+
+def load_feature_importance(path: Path | None = None) -> pd.DataFrame | None:
+    """Load LightGBM gain feature importance from the reports CSV."""
+    csv_path = (path or DEFAULT_FEATURE_IMPORTANCE_GAIN_CSV).resolve()
+    if not csv_path.is_file():
+        return None
+
+    try:
+        frame = pd.read_csv(csv_path)
+    except (pd.errors.EmptyDataError, pd.errors.ParserError, ValueError) as exc:
+        raise ValueError(f"Malformed feature importance CSV at {csv_path}: {exc}") from exc
+
+    missing_columns = [
+        column
+        for column in REQUIRED_FEATURE_IMPORTANCE_COLUMNS
+        if column not in frame.columns
+    ]
+    if missing_columns:
+        missing = ", ".join(missing_columns)
+        raise ValueError(f"Feature importance CSV missing required column(s): {missing}")
+
+    if frame.empty:
+        raise ValueError(f"Feature importance CSV at {csv_path} is empty")
+
+    return (
+        frame[list(REQUIRED_FEATURE_IMPORTANCE_COLUMNS)]
+        .sort_values(FEATURE_IMPORTANCE_VALUE_COLUMN, ascending=False)
+        .reset_index(drop=True)
+    )
+
+
+def top_feature_importance(frame: pd.DataFrame, n: int = 15) -> pd.DataFrame:
+    """Return the top ``n`` features by importance."""
+    if n <= 0:
+        return frame.iloc[0:0].copy()
+    return frame.head(min(n, len(frame))).copy()

@@ -13,12 +13,15 @@ import pandas as pd  # noqa: E402
 import streamlit as st  # noqa: E402
 
 from courtvision.dashboard.data import (  # noqa: E402
+    DEFAULT_FEATURE_IMPORTANCE_GAIN_PNG,
     compute_overview_stats,
     compute_shot_quality_summary,
     filter_shots,
     load_dashboard_splits,
+    load_feature_importance,
     load_training_summary,
     summarize_by_distance_bucket,
+    top_feature_importance,
 )
 from courtvision.data.collect import DEFAULT_SEASON  # noqa: E402
 
@@ -147,76 +150,112 @@ def _render_shot_quality_explorer(test: pd.DataFrame) -> None:
     st.bar_chart(chart_data)
 
 
+def _render_feature_importance() -> None:
+    st.markdown("#### Feature importance")
+
+    try:
+        importance = load_feature_importance()
+    except ValueError as exc:
+        st.error(str(exc))
+        return
+
+    if importance is None:
+        st.warning(
+            "No feature importance artifact found yet. Run LightGBM training with "
+            "MLflow/artifact logging enabled to generate "
+            "`reports/tables/lightgbm_feature_importance_gain.csv`."
+        )
+        return
+
+    top_n_label = st.selectbox(
+        "Top features to show",
+        options=["10", "15", "20", "All"],
+        index=1,
+    )
+    top_n = len(importance) if top_n_label == "All" else int(top_n_label)
+    top_features = top_feature_importance(importance, n=top_n)
+
+    chart_data = top_features.set_index("feature")[["importance"]]
+    st.bar_chart(chart_data)
+
+    with st.expander("Full feature importance table"):
+        st.dataframe(importance, use_container_width=True, hide_index=True)
+
+    if DEFAULT_FEATURE_IMPORTANCE_GAIN_PNG.is_file():
+        st.image(str(DEFAULT_FEATURE_IMPORTANCE_GAIN_PNG), caption="LightGBM gain importance")
+
+
 def _render_model_performance() -> None:
     st.subheader("Model Performance")
     st.caption("Held-out test metrics from the latest LightGBM training run.")
 
+    summary = None
     try:
         summary = load_training_summary()
     except ValueError as exc:
         st.error(str(exc))
-        return
 
     if summary is None:
         st.warning(
             "No training summary found. Run model training to generate "
             "`model_artifacts/training_summary.json`."
         )
-        return
-
-    metadata = pd.DataFrame(
-        {
-            "Field": ["Model", "Mode", "Environment", "Season", "Summary path"],
-            "Value": [
-                summary.model,
-                summary.mode,
-                summary.environment,
-                summary.season,
-                str(summary.summary_path),
-            ],
-        }
-    )
-    st.dataframe(metadata, use_container_width=True, hide_index=True)
-
-    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-
-    with metric_col1:
-        st.metric("AUC", _format_metric_value(summary.auc))
-    with metric_col2:
-        st.metric("Log loss", _format_metric_value(summary.log_loss))
-    with metric_col3:
-        st.metric("Brier score", _format_metric_value(summary.brier_score))
-    with metric_col4:
-        st.metric("Accuracy", _format_percent_value(summary.accuracy))
-
-    if summary.mode == "search" and any(
-        value is not None
-        for value in (
-            summary.validation_auc,
-            summary.validation_log_loss,
-            summary.best_config_index,
+    else:
+        metadata = pd.DataFrame(
+            {
+                "Field": ["Model", "Mode", "Environment", "Season", "Summary path"],
+                "Value": [
+                    summary.model,
+                    summary.mode,
+                    summary.environment,
+                    summary.season,
+                    str(summary.summary_path),
+                ],
+            }
         )
-    ):
-        st.markdown("#### Validation metrics")
-        validation_col1, validation_col2, validation_col3 = st.columns(3)
+        st.dataframe(metadata, use_container_width=True, hide_index=True)
 
-        with validation_col1:
-            st.metric("Validation AUC", _format_metric_value(summary.validation_auc))
-        with validation_col2:
-            st.metric(
-                "Validation log loss",
-                _format_metric_value(summary.validation_log_loss),
-            )
-        with validation_col3:
-            best_config = (
-                str(summary.best_config_index)
-                if summary.best_config_index is not None
-                else "—"
-            )
-            st.metric("Best config index", best_config)
+        metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
 
-    with st.expander("Raw training summary JSON"):
-        st.code(summary.summary_path.read_text(encoding="utf-8"), language="json")
+        with metric_col1:
+            st.metric("AUC", _format_metric_value(summary.auc))
+        with metric_col2:
+            st.metric("Log loss", _format_metric_value(summary.log_loss))
+        with metric_col3:
+            st.metric("Brier score", _format_metric_value(summary.brier_score))
+        with metric_col4:
+            st.metric("Accuracy", _format_percent_value(summary.accuracy))
+
+        if summary.mode == "search" and any(
+            value is not None
+            for value in (
+                summary.validation_auc,
+                summary.validation_log_loss,
+                summary.best_config_index,
+            )
+        ):
+            st.markdown("#### Validation metrics")
+            validation_col1, validation_col2, validation_col3 = st.columns(3)
+
+            with validation_col1:
+                st.metric("Validation AUC", _format_metric_value(summary.validation_auc))
+            with validation_col2:
+                st.metric(
+                    "Validation log loss",
+                    _format_metric_value(summary.validation_log_loss),
+                )
+            with validation_col3:
+                best_config = (
+                    str(summary.best_config_index)
+                    if summary.best_config_index is not None
+                    else "—"
+                )
+                st.metric("Best config index", best_config)
+
+        with st.expander("Raw training summary JSON"):
+            st.code(summary.summary_path.read_text(encoding="utf-8"), language="json")
+
+    _render_feature_importance()
 
 
 def main() -> None:

@@ -14,8 +14,10 @@ from courtvision.dashboard.data import (
     compute_overview_stats,
     compute_shot_quality_summary,
     filter_shots,
+    load_feature_importance,
     load_training_summary,
     summarize_by_distance_bucket,
+    top_feature_importance,
 )
 from courtvision.models.common import FEATURE_COLUMNS, TARGET_COLUMN
 
@@ -367,6 +369,77 @@ def test_load_training_summary_raises_value_error_when_metrics_are_missing(tmp_p
 
     with pytest.raises(ValueError, match="metrics missing required field"):
         load_training_summary(summary_path)
+
+
+def test_load_feature_importance_returns_none_when_file_is_missing(tmp_path: Path) -> None:
+    missing_path = tmp_path / "lightgbm_feature_importance_gain.csv"
+
+    assert load_feature_importance(missing_path) is None
+
+
+def test_load_feature_importance_reads_valid_csv(tmp_path: Path) -> None:
+    csv_path = tmp_path / "importance.csv"
+    csv_path.write_text(
+        "feature,importance\nshot_distance,10.0\nloc_x,5.0\n",
+        encoding="utf-8",
+    )
+
+    importance = load_feature_importance(csv_path)
+
+    assert importance is not None
+    assert list(importance.columns) == ["feature", "importance"]
+    assert len(importance) == 2
+
+
+def test_load_feature_importance_sorts_by_importance_descending(tmp_path: Path) -> None:
+    csv_path = tmp_path / "importance.csv"
+    csv_path.write_text(
+        "feature,importance\nlow,1.0\nhigh,3.0\nmid,2.0\n",
+        encoding="utf-8",
+    )
+
+    importance = load_feature_importance(csv_path)
+
+    assert importance is not None
+    assert importance["feature"].tolist() == ["high", "mid", "low"]
+
+
+def test_load_feature_importance_raises_value_error_when_required_columns_are_missing(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "importance.csv"
+    csv_path.write_text("feature,gain\nshot_distance,10.0\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="missing required column"):
+        load_feature_importance(csv_path)
+
+
+def test_top_feature_importance_returns_requested_number_of_rows() -> None:
+    importance = pd.DataFrame(
+        {
+            "feature": ["a", "b", "c", "d", "e"],
+            "importance": [5.0, 4.0, 3.0, 2.0, 1.0],
+        }
+    )
+
+    top = top_feature_importance(importance, n=3)
+
+    assert len(top) == 3
+    assert top["feature"].tolist() == ["a", "b", "c"]
+
+
+def test_top_feature_importance_handles_n_larger_than_row_count() -> None:
+    importance = pd.DataFrame(
+        {
+            "feature": ["a", "b"],
+            "importance": [2.0, 1.0],
+        }
+    )
+
+    top = top_feature_importance(importance, n=10)
+
+    assert len(top) == 2
+    assert top["feature"].tolist() == ["a", "b"]
 
 
 def test_empty_filtered_data_does_not_crash() -> None:
