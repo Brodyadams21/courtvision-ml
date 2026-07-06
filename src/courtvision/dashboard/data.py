@@ -45,6 +45,23 @@ DISTANCE_BUCKET_COLUMN = "distance_bucket"
 SHOT_VALUE_COLUMN = "shot_value"
 PERIOD_COLUMN = "period"
 SHOT_DISTANCE_COLUMN = "shot_distance"
+SCORE_MARGIN_COLUMN = "score_margin"
+LOC_X_COLUMN = "loc_x"
+LOC_Y_COLUMN = "loc_y"
+PREDICTION_ROW_ID_COLUMN = "row_id"
+PREDICTION_DISPLAY_COLUMNS: tuple[str, ...] = (
+    PREDICTION_ROW_ID_COLUMN,
+    TARGET_COLUMN,
+    SHOT_VALUE_COLUMN,
+    SHOT_DISTANCE_COLUMN,
+    PERIOD_COLUMN,
+    SCORE_MARGIN_COLUMN,
+    LOC_X_COLUMN,
+    LOC_Y_COLUMN,
+)
+PREDICTION_FEATURE_COLUMNS: tuple[str, ...] = tuple(
+    column for column in FEATURE_COLUMNS if column != SHOT_VALUE_COLUMN
+)
 
 
 @dataclass(frozen=True)
@@ -66,6 +83,12 @@ class ShotQualitySummary:
     avg_shot_value: float
     avg_shot_distance: float
     avg_expected_points_baseline: float
+
+
+@dataclass(frozen=True)
+class PreparedPredictionFeatures:
+    features: dict[str, float]
+    shot_value: int
 
 
 @dataclass(frozen=True)
@@ -388,3 +411,38 @@ def top_feature_importance(frame: pd.DataFrame, n: int = 15) -> pd.DataFrame:
     if n <= 0:
         return frame.iloc[0:0].copy()
     return frame.head(min(n, len(frame))).copy()
+
+
+def sample_prediction_rows(
+    test: pd.DataFrame,
+    n: int = 100,
+    *,
+    random_state: int = 42,
+) -> pd.DataFrame:
+    """Return a lightweight sample of test shots for the prediction playground UI."""
+    if test.empty:
+        return pd.DataFrame(columns=list(PREDICTION_DISPLAY_COLUMNS))
+
+    sample_size = min(n, len(test))
+    sampled = test.sample(n=sample_size, random_state=random_state).copy()
+    sampled[PREDICTION_ROW_ID_COLUMN] = sampled.index
+    return sampled[list(PREDICTION_DISPLAY_COLUMNS)].reset_index(drop=True)
+
+
+def get_prediction_row(test: pd.DataFrame, row_id: int) -> pd.Series:
+    """Return the full test-set row for a selected prediction playground row."""
+    if row_id not in test.index:
+        raise KeyError(f"Prediction row_id not found in test set: {row_id}")
+    return test.loc[row_id]
+
+
+def prepare_prediction_features(row: pd.Series) -> PreparedPredictionFeatures:
+    """Build API-style model inputs from a full test-set row."""
+    missing_columns = [column for column in FEATURE_COLUMNS if column not in row.index]
+    if missing_columns:
+        missing = ", ".join(missing_columns)
+        raise KeyError(f"Row missing required feature columns: {missing}")
+
+    shot_value = int(row[SHOT_VALUE_COLUMN])
+    features = {column: float(row[column]) for column in PREDICTION_FEATURE_COLUMNS}
+    return PreparedPredictionFeatures(features=features, shot_value=shot_value)

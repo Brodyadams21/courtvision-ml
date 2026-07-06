@@ -10,12 +10,18 @@ import pytest
 
 from courtvision.dashboard.data import (
     DISTANCE_BUCKET_LABELS,
+    PREDICTION_DISPLAY_COLUMNS,
+    PREDICTION_FEATURE_COLUMNS,
+    PREDICTION_ROW_ID_COLUMN,
     add_distance_bucket,
     compute_overview_stats,
     compute_shot_quality_summary,
     filter_shots,
+    get_prediction_row,
     load_feature_importance,
     load_training_summary,
+    prepare_prediction_features,
+    sample_prediction_rows,
     summarize_by_distance_bucket,
     top_feature_importance,
 )
@@ -440,6 +446,80 @@ def test_top_feature_importance_handles_n_larger_than_row_count() -> None:
 
     assert len(top) == 2
     assert top["feature"].tolist() == ["a", "b"]
+
+
+def test_sample_prediction_rows_returns_expected_display_columns() -> None:
+    test = _shot_frame(n_rows=5)
+
+    samples = sample_prediction_rows(test, n=3, random_state=0)
+
+    assert list(samples.columns) == list(PREDICTION_DISPLAY_COLUMNS)
+    assert len(samples) == 3
+
+
+def test_sample_prediction_rows_includes_row_id() -> None:
+    test = _shot_frame(n_rows=4)
+    test.index = [100, 101, 102, 103]
+
+    samples = sample_prediction_rows(test, n=2, random_state=0)
+
+    assert PREDICTION_ROW_ID_COLUMN in samples.columns
+    assert samples[PREDICTION_ROW_ID_COLUMN].isin(test.index).all()
+
+
+def test_get_prediction_row_returns_correct_row() -> None:
+    test = _shot_frame(
+        rows=[
+            _shot_row(shot_value=2.0, shot_distance=4.0),
+            _shot_row(shot_value=3.0, shot_distance=24.0),
+        ]
+    )
+    test.index = [10, 20]
+
+    row = get_prediction_row(test, 20)
+
+    assert row["shot_value"] == pytest.approx(3.0)
+    assert row["shot_distance"] == pytest.approx(24.0)
+
+
+def test_get_prediction_row_raises_key_error_for_invalid_row_id() -> None:
+    test = _shot_frame(n_rows=2)
+    test.index = [1, 2]
+
+    with pytest.raises(KeyError, match="Prediction row_id not found in test set: 99"):
+        get_prediction_row(test, 99)
+
+
+def test_prepare_prediction_features_excludes_shot_value_from_features() -> None:
+    row = get_prediction_row(
+        _shot_frame(rows=[_shot_row(shot_value=3.0, shot_distance=24.0)]),
+        0,
+    )
+
+    prepared = prepare_prediction_features(row)
+
+    assert "shot_value" not in prepared.features
+
+
+def test_prepare_prediction_features_returns_shot_value_as_int() -> None:
+    row = get_prediction_row(
+        _shot_frame(rows=[_shot_row(shot_value=3.0, shot_distance=24.0)]),
+        0,
+    )
+
+    prepared = prepare_prediction_features(row)
+
+    assert prepared.shot_value == 3
+    assert isinstance(prepared.shot_value, int)
+
+
+def test_prepare_prediction_features_includes_all_remaining_expected_feature_columns() -> None:
+    row = get_prediction_row(_shot_frame(n_rows=1), 0)
+
+    prepared = prepare_prediction_features(row)
+
+    assert set(prepared.features) == set(PREDICTION_FEATURE_COLUMNS)
+    assert len(prepared.features) == len(PREDICTION_FEATURE_COLUMNS)
 
 
 def test_empty_filtered_data_does_not_crash() -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -14,16 +15,21 @@ import streamlit as st  # noqa: E402
 
 from courtvision.dashboard.data import (  # noqa: E402
     DEFAULT_FEATURE_IMPORTANCE_GAIN_PNG,
+    PREDICTION_ROW_ID_COLUMN,
     compute_overview_stats,
     compute_shot_quality_summary,
     filter_shots,
+    get_prediction_row,
     load_dashboard_splits,
     load_feature_importance,
     load_training_summary,
+    prepare_prediction_features,
+    sample_prediction_rows,
     summarize_by_distance_bucket,
     top_feature_importance,
 )
 from courtvision.data.collect import DEFAULT_SEASON  # noqa: E402
+from courtvision.models.common import FEATURE_COLUMNS, TARGET_COLUMN  # noqa: E402
 
 
 def _format_metric_value(value: float | None, *, precision: int = 4) -> str:
@@ -258,6 +264,81 @@ def _render_model_performance() -> None:
     _render_feature_importance()
 
 
+def _format_shot_result(made_flag: object) -> str:
+    if pd.isna(made_flag):
+        return "Unknown"
+    return "Made" if bool(made_flag) else "Missed"
+
+
+def _render_prediction_playground(test: pd.DataFrame) -> None:
+    st.subheader("Prediction Playground")
+    st.caption("Inspect real held-out test shots and prepare API-style model inputs.")
+
+    samples = sample_prediction_rows(test)
+    if samples.empty:
+        st.warning("No test shots available for prediction preview.")
+        return
+
+    sample_lookup = samples.set_index(PREDICTION_ROW_ID_COLUMN)
+
+    def _format_shot_option(row_id: int) -> str:
+        sample_row = sample_lookup.loc[row_id]
+        return (
+            f"Row {row_id} | {int(sample_row['shot_value'])}pt | "
+            f"{float(sample_row['shot_distance']):.1f} ft | "
+            f"{_format_shot_result(sample_row[TARGET_COLUMN])}"
+        )
+
+    row_ids = samples[PREDICTION_ROW_ID_COLUMN].tolist()
+    selected_row_id = st.selectbox(
+        "Select a test shot",
+        options=row_ids,
+        format_func=_format_shot_option,
+    )
+
+    row = get_prediction_row(test, int(selected_row_id))
+    prepared = prepare_prediction_features(row)
+
+    st.markdown("#### Selected shot")
+    summary_col1, summary_col2, summary_col3, summary_col4, summary_col5 = st.columns(5)
+
+    with summary_col1:
+        st.metric("Shot value", int(row["shot_value"]))
+    with summary_col2:
+        st.metric("Shot distance", f"{float(row['shot_distance']):.1f} ft")
+    with summary_col3:
+        st.metric("Period", int(row["period"]))
+    with summary_col4:
+        st.metric("Actual result", _format_shot_result(row[TARGET_COLUMN]))
+    with summary_col5:
+        st.metric("Score margin", f"{float(row['score_margin']):.1f}")
+
+    location_col1, location_col2 = st.columns(2)
+    with location_col1:
+        st.metric("loc_x", f"{float(row['loc_x']):.1f}")
+    with location_col2:
+        st.metric("loc_y", f"{float(row['loc_y']):.1f}")
+
+    feature_table = pd.DataFrame(
+        {
+            "feature": FEATURE_COLUMNS,
+            "value": [row[column] for column in FEATURE_COLUMNS],
+        }
+    )
+    st.markdown("#### Model features")
+    st.dataframe(feature_table, use_container_width=True, hide_index=True)
+
+    request_preview = {
+        "features": prepared.features,
+        "shot_value": prepared.shot_value,
+    }
+    st.markdown("#### Model input preview")
+    st.code(json.dumps(request_preview, indent=2), language="json")
+
+    st.info("Model prediction will be wired in the next task.")
+    st.button("Predict make probability", disabled=True)
+
+
 def main() -> None:
     st.set_page_config(page_title="CourtVision Analytics", layout="wide")
 
@@ -271,8 +352,8 @@ def main() -> None:
 
     train, test = _load_splits()
 
-    overview_tab, explorer_tab, performance_tab = st.tabs(
-        ["Overview", "Shot Quality Explorer", "Model Performance"]
+    overview_tab, explorer_tab, performance_tab, playground_tab = st.tabs(
+        ["Overview", "Shot Quality Explorer", "Model Performance", "Prediction Playground"]
     )
 
     with overview_tab:
@@ -283,6 +364,9 @@ def main() -> None:
 
     with performance_tab:
         _render_model_performance()
+
+    with playground_tab:
+        _render_prediction_playground(test)
 
 
 if __name__ == "__main__":
