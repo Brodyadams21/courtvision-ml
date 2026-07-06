@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
@@ -11,6 +14,7 @@ from courtvision.dashboard.data import (
     compute_overview_stats,
     compute_shot_quality_summary,
     filter_shots,
+    load_training_summary,
     summarize_by_distance_bucket,
 )
 from courtvision.models.common import FEATURE_COLUMNS, TARGET_COLUMN
@@ -202,6 +206,69 @@ def test_summarize_by_distance_bucket_returns_grouped_rows() -> None:
     assert twenty_five_to_thirty["shot_count"] == 1
     assert twenty_five_to_thirty["make_rate"] == pytest.approx(1.0)
     assert twenty_five_to_thirty["avg_shot_value"] == pytest.approx(3.0)
+
+
+def _write_training_summary(path: Path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def test_load_training_summary_returns_none_when_file_is_missing(tmp_path: Path) -> None:
+    missing_path = tmp_path / "model_artifacts" / "training_summary.json"
+
+    assert load_training_summary(missing_path) is None
+
+
+def test_load_training_summary_reads_default_mode_metrics_correctly(tmp_path: Path) -> None:
+    summary_path = tmp_path / "training_summary.json"
+    _write_training_summary(
+        summary_path,
+        {
+            "environment": "local",
+            "model": "lightgbm",
+            "mode": "default",
+            "season": "2024-25",
+            "metrics": {
+                "auc": 0.6479,
+                "log_loss": 0.6495,
+                "brier_score": 0.2292,
+                "accuracy": 0.6213,
+            },
+        },
+    )
+
+    summary = load_training_summary(summary_path)
+
+    assert summary is not None
+    assert summary.environment == "local"
+    assert summary.model == "lightgbm"
+    assert summary.mode == "default"
+    assert summary.season == "2024-25"
+    assert summary.auc == pytest.approx(0.6479)
+    assert summary.log_loss == pytest.approx(0.6495)
+    assert summary.brier_score == pytest.approx(0.2292)
+    assert summary.accuracy == pytest.approx(0.6213)
+    assert summary.summary_path == summary_path.resolve()
+
+
+def test_load_training_summary_raises_value_error_when_metrics_are_missing(tmp_path: Path) -> None:
+    summary_path = tmp_path / "training_summary.json"
+    _write_training_summary(
+        summary_path,
+        {
+            "environment": "local",
+            "model": "lightgbm",
+            "mode": "default",
+            "season": "2024-25",
+            "metrics": {
+                "auc": 0.6479,
+                "log_loss": 0.6495,
+            },
+        },
+    )
+
+    with pytest.raises(ValueError, match="metrics missing required field"):
+        load_training_summary(summary_path)
 
 
 def test_empty_filtered_data_does_not_crash() -> None:

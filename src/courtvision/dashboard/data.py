@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -10,6 +11,11 @@ import pandas as pd
 from courtvision.data.build_features import DEFAULT_PROCESSED_FEATURES_DIR
 from courtvision.data.collect import DEFAULT_SEASON
 from courtvision.models.common import FEATURE_COLUMNS, TARGET_COLUMN, load_train_test_parquet
+from courtvision.utils.config import PROJECT_ROOT
+
+DEFAULT_TRAINING_SUMMARY_PATH = PROJECT_ROOT / "model_artifacts" / "training_summary.json"
+REQUIRED_SUMMARY_FIELDS: tuple[str, ...] = ("environment", "model", "mode", "season")
+REQUIRED_METRIC_FIELDS: tuple[str, ...] = ("auc", "log_loss", "brier_score", "accuracy")
 
 DISTANCE_BUCKET_LABELS: tuple[str, ...] = (
     "0-5 ft",
@@ -47,6 +53,19 @@ class ShotQualitySummary:
     avg_shot_value: float
     avg_shot_distance: float
     avg_expected_points_baseline: float
+
+
+@dataclass(frozen=True)
+class ModelPerformanceSummary:
+    environment: str
+    model: str
+    mode: str
+    season: str
+    auc: float
+    log_loss: float
+    brier_score: float
+    accuracy: float
+    summary_path: Path
 
 
 def load_dashboard_splits(
@@ -198,3 +217,47 @@ def summarize_by_distance_bucket(frame: pd.DataFrame) -> pd.DataFrame:
         )
 
     return pd.DataFrame(rows, columns=columns)
+
+
+def load_training_summary(
+    path: Path | None = None,
+) -> ModelPerformanceSummary | None:
+    """Load LightGBM training metrics from ``training_summary.json``."""
+    summary_path = (path or DEFAULT_TRAINING_SUMMARY_PATH).resolve()
+    if not summary_path.is_file():
+        return None
+
+    try:
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Malformed training summary JSON at {summary_path}: {exc}") from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError(
+            f"Expected training summary object at {summary_path}, got {type(payload).__name__}"
+        )
+
+    for field in REQUIRED_SUMMARY_FIELDS:
+        if field not in payload:
+            raise ValueError(f"Training summary missing required field: {field}")
+
+    metrics = payload.get("metrics")
+    if not isinstance(metrics, dict):
+        raise ValueError("Training summary missing required field: metrics")
+
+    missing_metrics = [field for field in REQUIRED_METRIC_FIELDS if field not in metrics]
+    if missing_metrics:
+        missing = ", ".join(missing_metrics)
+        raise ValueError(f"Training summary metrics missing required field(s): {missing}")
+
+    return ModelPerformanceSummary(
+        environment=str(payload["environment"]),
+        model=str(payload["model"]),
+        mode=str(payload["mode"]),
+        season=str(payload["season"]),
+        auc=float(metrics["auc"]),
+        log_loss=float(metrics["log_loss"]),
+        brier_score=float(metrics["brier_score"]),
+        accuracy=float(metrics["accuracy"]),
+        summary_path=summary_path,
+    )
