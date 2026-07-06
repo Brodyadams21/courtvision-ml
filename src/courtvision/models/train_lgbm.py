@@ -346,13 +346,13 @@ def log_best_model_artifacts(
         calibration_path = save_calibration_curve(
             y_test,
             test_proba,
-            artifact_dir / "lightgbm_calibration_curve.png",
+            DEFAULT_FIGURES_DIR / "lightgbm_calibration_curve.png",
             model_label="LightGBM",
             title=f"LightGBM calibration curve (test, {season})",
         )
         distribution_path = save_probability_distribution(
             test_proba,
-            artifact_dir / "lightgbm_probability_distribution.png",
+            DEFAULT_FIGURES_DIR / "lightgbm_probability_distribution.png",
             title=f"LightGBM predicted probability distribution (test, {season})",
         )
         gain_plot_path = save_feature_importance_plot(

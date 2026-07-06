@@ -3,6 +3,8 @@
 from courtvision.dashboard.data import (
     DEFAULT_FEATURE_IMPORTANCE_GAIN_CSV,
     DEFAULT_FEATURE_IMPORTANCE_GAIN_PNG,
+    DEFAULT_LIGHTGBM_CALIBRATION_CURVE_PNG,
+    DEFAULT_LIGHTGBM_PROBABILITY_DISTRIBUTION_PNG,
     DEFAULT_TRAINING_SUMMARY_PATH,
     DISTANCE_BUCKET_LABELS,
     PREDICTION_DISPLAY_COLUMNS,
@@ -24,6 +26,7 @@ from courtvision.dashboard.data import (
     compare_prediction_to_baseline,
     compute_overview_stats,
     compute_shot_quality_summary,
+    existing_model_artifact_paths,
     filter_shots,
     get_prediction_row,
     load_dashboard_splits,
@@ -44,6 +47,8 @@ from courtvision.dashboard.prediction import (
 __all__ = [
     "DEFAULT_FEATURE_IMPORTANCE_GAIN_CSV",
     "DEFAULT_FEATURE_IMPORTANCE_GAIN_PNG",
+    "DEFAULT_LIGHTGBM_CALIBRATION_CURVE_PNG",
+    "DEFAULT_LIGHTGBM_PROBABILITY_DISTRIBUTION_PNG",
     "DEFAULT_TRAINING_SUMMARY_PATH",
     "DISTANCE_BUCKET_LABELS",
     "PREDICTION_DISPLAY_COLUMNS",
@@ -68,6 +73,7 @@ __all__ = [
     "compute_overview_stats",
     "compute_shot_quality_summary",
     "create_model_service",
+    "existing_model_artifact_paths",
     "filter_shots",
     "get_prediction_row",
     "load_dashboard_splits",

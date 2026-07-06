@@ -22,6 +22,7 @@ from courtvision.dashboard.data import (
     compare_prediction_to_baseline,
     compute_overview_stats,
     compute_shot_quality_summary,
+    existing_model_artifact_paths,
     filter_shots,
     get_prediction_row,
     load_feature_importance,
@@ -684,6 +685,51 @@ def test_build_shot_edge_table_can_be_sorted_by_ev_edge() -> None:
     sorted_table = table.sort_values("ev_edge_vs_baseline", ascending=False)
 
     assert sorted_table.iloc[0]["row_id"] == 2
+
+
+def test_existing_model_artifact_paths_returns_empty_dict_when_files_are_missing(
+    tmp_path: Path,
+) -> None:
+    artifacts = existing_model_artifact_paths(
+        calibration_curve_path=tmp_path / "missing_calibration.png",
+        probability_distribution_path=tmp_path / "missing_distribution.png",
+        feature_importance_gain_path=tmp_path / "missing_importance.png",
+    )
+
+    assert artifacts == {}
+
+
+def test_existing_model_artifact_paths_returns_only_files_that_exist(tmp_path: Path) -> None:
+    importance_path = tmp_path / "lightgbm_feature_importance_gain.png"
+    importance_path.write_bytes(b"png")
+
+    artifacts = existing_model_artifact_paths(
+        calibration_curve_path=tmp_path / "missing_calibration.png",
+        probability_distribution_path=tmp_path / "missing_distribution.png",
+        feature_importance_gain_path=importance_path,
+    )
+
+    assert set(artifacts) == {"feature_importance_gain"}
+    assert artifacts["feature_importance_gain"] == importance_path.resolve()
+
+
+def test_existing_model_artifact_paths_includes_calibration_and_distribution_when_present(
+    tmp_path: Path,
+) -> None:
+    calibration_path = tmp_path / "lightgbm_calibration_curve.png"
+    distribution_path = tmp_path / "lightgbm_probability_distribution.png"
+    calibration_path.write_bytes(b"calibration")
+    distribution_path.write_bytes(b"distribution")
+
+    artifacts = existing_model_artifact_paths(
+        calibration_curve_path=calibration_path,
+        probability_distribution_path=distribution_path,
+        feature_importance_gain_path=tmp_path / "missing_importance.png",
+    )
+
+    assert set(artifacts) == {"calibration_curve", "probability_distribution"}
+    assert artifacts["calibration_curve"] == calibration_path.resolve()
+    assert artifacts["probability_distribution"] == distribution_path.resolve()
 
 
 def test_empty_filtered_data_does_not_crash() -> None:

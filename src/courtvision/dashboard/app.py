@@ -21,6 +21,7 @@ from courtvision.dashboard.data import (  # noqa: E402
     compare_prediction_to_baseline,
     compute_overview_stats,
     compute_shot_quality_summary,
+    existing_model_artifact_paths,
     filter_shots,
     get_prediction_row,
     load_dashboard_splits,
@@ -210,6 +211,49 @@ def _render_feature_importance() -> None:
         st.image(str(DEFAULT_FEATURE_IMPORTANCE_GAIN_PNG), caption="LightGBM gain importance")
 
 
+def _render_model_diagnostic_artifacts() -> None:
+    st.markdown("#### Model diagnostic artifacts")
+
+    artifacts = existing_model_artifact_paths()
+    calibration_path = artifacts.get("calibration_curve")
+    distribution_path = artifacts.get("probability_distribution")
+
+    if calibration_path is None and distribution_path is None:
+        st.warning(
+            "No calibration or probability distribution artifacts found yet. Run LightGBM "
+            "training with MLflow/artifact logging enabled to generate "
+            "`reports/figures/lightgbm_calibration_curve.png` and "
+            "`reports/figures/lightgbm_probability_distribution.png`."
+        )
+        return
+
+    artifact_col1, artifact_col2 = st.columns(2)
+
+    with artifact_col1:
+        if calibration_path is not None:
+            st.image(
+                str(calibration_path),
+                caption=(
+                    "Calibration curve: checks whether predicted probabilities match "
+                    "actual make rates."
+                ),
+            )
+        else:
+            st.caption("Calibration curve not available.")
+
+    with artifact_col2:
+        if distribution_path is not None:
+            st.image(
+                str(distribution_path),
+                caption=(
+                    "Probability distribution: shows how spread out the model's shot "
+                    "probabilities are."
+                ),
+            )
+        else:
+            st.caption("Probability distribution not available.")
+
+
 def _render_model_performance() -> None:
     st.subheader("Model Performance")
     st.caption("Held-out test metrics from the latest LightGBM training run.")
@@ -281,6 +325,7 @@ def _render_model_performance() -> None:
             st.code(summary.summary_path.read_text(encoding="utf-8"), language="json")
 
     _render_feature_importance()
+    _render_model_diagnostic_artifacts()
 
 
 def _format_shot_result(made_flag: object) -> str:

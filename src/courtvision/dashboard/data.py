@@ -21,6 +21,12 @@ DEFAULT_FEATURE_IMPORTANCE_GAIN_CSV = (
 DEFAULT_FEATURE_IMPORTANCE_GAIN_PNG = (
     PROJECT_ROOT / "reports" / "figures" / "lightgbm_feature_importance_gain.png"
 )
+DEFAULT_LIGHTGBM_CALIBRATION_CURVE_PNG = (
+    PROJECT_ROOT / "reports" / "figures" / "lightgbm_calibration_curve.png"
+)
+DEFAULT_LIGHTGBM_PROBABILITY_DISTRIBUTION_PNG = (
+    PROJECT_ROOT / "reports" / "figures" / "lightgbm_probability_distribution.png"
+)
 REQUIRED_SUMMARY_FIELDS: tuple[str, ...] = ("environment", "model", "mode", "season")
 REQUIRED_DEFAULT_METRIC_FIELDS: tuple[str, ...] = ("auc", "log_loss", "brier_score", "accuracy")
 REQUIRED_SEARCH_TEST_FIELDS: tuple[str, ...] = ("test_auc", "test_log_loss")
@@ -470,6 +476,29 @@ def top_feature_importance(frame: pd.DataFrame, n: int = 15) -> pd.DataFrame:
     if n <= 0:
         return frame.iloc[0:0].copy()
     return frame.head(min(n, len(frame))).copy()
+
+
+def existing_model_artifact_paths(
+    *,
+    calibration_curve_path: Path | None = None,
+    probability_distribution_path: Path | None = None,
+    feature_importance_gain_path: Path | None = None,
+) -> dict[str, Path]:
+    """Return local model artifact paths that exist on disk."""
+    candidates = {
+        "calibration_curve": calibration_curve_path or DEFAULT_LIGHTGBM_CALIBRATION_CURVE_PNG,
+        "probability_distribution": (
+            probability_distribution_path or DEFAULT_LIGHTGBM_PROBABILITY_DISTRIBUTION_PNG
+        ),
+        "feature_importance_gain": (
+            feature_importance_gain_path or DEFAULT_FEATURE_IMPORTANCE_GAIN_PNG
+        ),
+    }
+    return {
+        key: path.resolve()
+        for key, path in candidates.items()
+        if path.is_file()
+    }
 
 
 def sample_prediction_rows(
