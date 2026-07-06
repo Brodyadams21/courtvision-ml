@@ -112,6 +112,39 @@ class PredictionComparison:
     similar_shot_count: int
 
 
+@dataclass(frozen=True)
+class ShotEdgeRow:
+    row_id: int
+    shot_value: int
+    shot_distance: float
+    period: int
+    actual_made: bool | None
+    actual_points: float | None
+    predicted_make_probability: float
+    expected_shot_value: float
+    baseline_make_rate: float
+    baseline_expected_value: float
+    probability_edge_vs_baseline: float
+    ev_edge_vs_baseline: float
+    similar_shot_count: int
+
+
+SHOT_EDGE_TABLE_COLUMNS: tuple[str, ...] = (
+    "row_id",
+    "shot_value",
+    "shot_distance",
+    "period",
+    "actual_made",
+    "predicted_make_probability",
+    "expected_shot_value",
+    "baseline_make_rate",
+    "baseline_expected_value",
+    "probability_edge_vs_baseline",
+    "ev_edge_vs_baseline",
+    "similar_shot_count",
+)
+
+
 class PredictionResultLike(Protocol):
     predicted_make_probability: float
     expected_shot_value: float
@@ -540,3 +573,46 @@ def compare_prediction_to_baseline(
         ev_edge_vs_baseline=result.expected_shot_value - baseline.expected_value,
         similar_shot_count=baseline.shot_count,
     )
+
+
+def build_shot_edge_row(
+    test: pd.DataFrame,
+    row_id: int,
+    result: PredictionResultLike,
+) -> ShotEdgeRow:
+    """Build a single shot-edge record from a prediction and held-out test row."""
+    row = get_prediction_row(test, row_id)
+    series = _series_row(row)
+    baseline = baseline_for_similar_shots(test, series)
+    comparison = compare_prediction_to_baseline(result, series, baseline)
+
+    return ShotEdgeRow(
+        row_id=row_id,
+        shot_value=int(series[SHOT_VALUE_COLUMN]),
+        shot_distance=float(series[SHOT_DISTANCE_COLUMN]),
+        period=int(series[PERIOD_COLUMN]),
+        actual_made=comparison.actual_made,
+        actual_points=comparison.actual_points,
+        predicted_make_probability=comparison.predicted_make_probability,
+        expected_shot_value=comparison.expected_shot_value,
+        baseline_make_rate=comparison.baseline_make_rate,
+        baseline_expected_value=comparison.baseline_expected_value,
+        probability_edge_vs_baseline=comparison.probability_edge_vs_baseline,
+        ev_edge_vs_baseline=comparison.ev_edge_vs_baseline,
+        similar_shot_count=comparison.similar_shot_count,
+    )
+
+
+def build_shot_edge_table(
+    test: pd.DataFrame,
+    predictions_by_row_id: dict[int, PredictionResultLike],
+) -> pd.DataFrame:
+    """Build a shot-edge table with one row per prediction."""
+    if not predictions_by_row_id:
+        return pd.DataFrame(columns=list(SHOT_EDGE_TABLE_COLUMNS))
+
+    rows = [
+        build_shot_edge_row(test, row_id, result)
+        for row_id, result in predictions_by_row_id.items()
+    ]
+    return pd.DataFrame(rows, columns=list(SHOT_EDGE_TABLE_COLUMNS))

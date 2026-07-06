@@ -17,6 +17,8 @@ from courtvision.dashboard.data import (
     actual_points_for_row,
     add_distance_bucket,
     baseline_for_similar_shots,
+    build_shot_edge_row,
+    build_shot_edge_table,
     compare_prediction_to_baseline,
     compute_overview_stats,
     compute_shot_quality_summary,
@@ -602,6 +604,86 @@ def test_compare_prediction_to_baseline_computes_ev_edge() -> None:
     assert comparison.ev_edge_vs_baseline == pytest.approx(0.15)
     assert comparison.actual_points == pytest.approx(0.0)
     assert comparison.actual_made is False
+
+
+def test_build_shot_edge_row_returns_expected_fields() -> None:
+    test = _shot_frame(
+        rows=[
+            _shot_row(shot_made_flag=True, shot_value=3.0, shot_distance=26.0, period=2.0),
+            _shot_row(shot_made_flag=False, shot_value=3.0, shot_distance=27.0, period=2.0),
+        ]
+    )
+    test.index = [10, 20]
+    result = DashboardPredictionResult(
+        predicted_make_probability=0.42,
+        expected_shot_value=1.26,
+        model_name="test-model",
+    )
+
+    edge_row = build_shot_edge_row(test, 10, result)
+
+    assert edge_row.row_id == 10
+    assert edge_row.shot_value == 3
+    assert edge_row.shot_distance == pytest.approx(26.0)
+    assert edge_row.period == 2
+    assert edge_row.actual_made is True
+    assert edge_row.predicted_make_probability == pytest.approx(0.42)
+    assert edge_row.baseline_make_rate == pytest.approx(0.5)
+    assert edge_row.similar_shot_count == 2
+
+
+def test_build_shot_edge_row_computes_ev_edge() -> None:
+    test = _shot_frame(rows=[_shot_row(shot_made_flag=True, shot_value=2.0, shot_distance=4.0)])
+    test.index = [5]
+    result = DashboardPredictionResult(
+        predicted_make_probability=0.60,
+        expected_shot_value=1.20,
+        model_name="test-model",
+    )
+
+    edge_row = build_shot_edge_row(test, 5, result)
+
+    assert edge_row.ev_edge_vs_baseline == pytest.approx(
+        edge_row.expected_shot_value - edge_row.baseline_expected_value
+    )
+
+
+def test_build_shot_edge_table_returns_one_row_per_prediction() -> None:
+    test = _shot_frame(
+        rows=[
+            _shot_row(shot_made_flag=True, shot_value=2.0, shot_distance=4.0),
+            _shot_row(shot_made_flag=False, shot_value=3.0, shot_distance=26.0),
+        ]
+    )
+    test.index = [1, 2]
+    predictions = {
+        1: DashboardPredictionResult(0.55, 1.10, "test-model"),
+        2: DashboardPredictionResult(0.35, 1.05, "test-model"),
+    }
+
+    table = build_shot_edge_table(test, predictions)
+
+    assert len(table) == 2
+    assert set(table["row_id"]) == {1, 2}
+
+
+def test_build_shot_edge_table_can_be_sorted_by_ev_edge() -> None:
+    test = _shot_frame(
+        rows=[
+            _shot_row(shot_made_flag=True, shot_value=2.0, shot_distance=4.0),
+            _shot_row(shot_made_flag=False, shot_value=3.0, shot_distance=26.0),
+        ]
+    )
+    test.index = [1, 2]
+    predictions = {
+        1: DashboardPredictionResult(0.40, 0.80, "test-model"),
+        2: DashboardPredictionResult(0.50, 1.50, "test-model"),
+    }
+
+    table = build_shot_edge_table(test, predictions)
+    sorted_table = table.sort_values("ev_edge_vs_baseline", ascending=False)
+
+    assert sorted_table.iloc[0]["row_id"] == 2
 
 
 def test_empty_filtered_data_does_not_crash() -> None:

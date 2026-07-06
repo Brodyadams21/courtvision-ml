@@ -17,6 +17,7 @@ from courtvision.dashboard.data import (  # noqa: E402
     DEFAULT_FEATURE_IMPORTANCE_GAIN_PNG,
     PREDICTION_ROW_ID_COLUMN,
     baseline_for_similar_shots,
+    build_shot_edge_table,
     compare_prediction_to_baseline,
     compute_overview_stats,
     compute_shot_quality_summary,
@@ -445,6 +446,136 @@ def _render_prediction_playground(test: pd.DataFrame) -> None:
             _render_prediction_comparison(test, row, result)
 
 
+def _render_shot_edge_explorer(test: pd.DataFrame) -> None:
+    st.subheader("Shot Edge Explorer")
+    st.caption("Rank held-out test shots by model edge over the similar-shot baseline.")
+
+    model_service = _load_model_service()
+    if model_service is None:
+        st.warning(PREDICTION_UNAVAILABLE_MESSAGE)
+        return
+
+    control_col1, control_col2, control_col3, control_col4 = st.columns(4)
+
+    with control_col1:
+        sample_size = int(
+            st.selectbox("Sample size", options=["25", "50", "100"], index=1)
+        )
+    with control_col2:
+        shot_value_label = st.selectbox("Shot value filter", options=["All", "2", "3"])
+    with control_col3:
+        sort_by = st.selectbox(
+            "Sort by",
+            options=[
+                "EV edge",
+                "Probability edge",
+                "Expected shot value",
+                "Predicted make probability",
+            ],
+        )
+    with control_col4:
+        direction = st.selectbox("Direction", options=["Highest first", "Lowest first"])
+
+    sort_column_map = {
+        "EV edge": "ev_edge_vs_baseline",
+        "Probability edge": "probability_edge_vs_baseline",
+        "Expected shot value": "expected_shot_value",
+        "Predicted make probability": "predicted_make_probability",
+    }
+    ascending = direction == "Lowest first"
+
+    if st.button("Score sample"):
+        candidate_test = test
+        if shot_value_label != "All":
+            candidate_test = filter_shots(test, shot_value=int(shot_value_label))
+
+        samples = sample_prediction_rows(candidate_test, n=sample_size)
+        if samples.empty:
+            st.warning("No test shots match the selected filters.")
+            return
+
+        predictions_by_row_id = {}
+        errors: list[str] = []
+        for row_id in samples[PREDICTION_ROW_ID_COLUMN]:
+            try:
+                prepared = prepare_prediction_features(get_prediction_row(test, row_id))
+                predictions_by_row_id[int(row_id)] = predict_prepared_shot(
+                    prepared,
+                    service=model_service,
+                )
+            except (PredictionUnavailable, KeyError, ValueError) as exc:
+                errors.append(f"Row {row_id}: {exc}")
+
+        if errors:
+            st.warning("Some shots could not be scored:\n" + "\n".join(errors))
+
+        if not predictions_by_row_id:
+            st.error("No shots were scored successfully.")
+            return
+
+        edge_table = build_shot_edge_table(test, predictions_by_row_id)
+        edge_table = edge_table.sort_values(
+            sort_column_map[sort_by],
+            ascending=ascending,
+        ).reset_index(drop=True)
+        st.session_state["shot_edge_table"] = edge_table
+
+    edge_table = st.session_state.get("shot_edge_table")
+    if edge_table is None or edge_table.empty:
+        st.info("Choose options and click **Score sample** to rank shots by model edge.")
+        return
+
+    if sort_by in sort_column_map:
+        edge_table = edge_table.sort_values(
+            sort_column_map[sort_by],
+            ascending=ascending,
+        ).reset_index(drop=True)
+
+    summary_col1, summary_col2, summary_col3, summary_col4, summary_col5 = st.columns(5)
+
+    with summary_col1:
+        st.metric("Shots scored", f"{len(edge_table):,}")
+    with summary_col2:
+        st.metric(
+            "Avg predicted make rate",
+            f"{edge_table['predicted_make_probability'].mean():.1%}",
+        )
+    with summary_col3:
+        st.metric("Avg model EV", f"{edge_table['expected_shot_value'].mean():.2f}")
+    with summary_col4:
+        st.metric(
+            "Avg baseline EV",
+            f"{edge_table['baseline_expected_value'].mean():.2f}",
+        )
+    with summary_col5:
+        st.metric("Avg EV edge", f"{edge_table['ev_edge_vs_baseline'].mean():+.3f}")
+
+    display_table = edge_table.copy()
+    display_table["actual_made"] = display_table["actual_made"].map(
+        lambda value: _format_shot_result(value) if value is not None else "Unknown"
+    )
+    display_table["predicted_make_probability"] = display_table[
+        "predicted_make_probability"
+    ].map(lambda value: f"{value:.1%}")
+    display_table["baseline_make_rate"] = display_table["baseline_make_rate"].map(
+        lambda value: f"{value:.1%}"
+    )
+    display_table["expected_shot_value"] = display_table["expected_shot_value"].map(
+        lambda value: f"{value:.2f}"
+    )
+    display_table["baseline_expected_value"] = display_table["baseline_expected_value"].map(
+        lambda value: f"{value:.2f}"
+    )
+    display_table["probability_edge_vs_baseline"] = display_table[
+        "probability_edge_vs_baseline"
+    ].map(_format_signed_percentage_points)
+    display_table["ev_edge_vs_baseline"] = display_table["ev_edge_vs_baseline"].map(
+        _format_signed_points
+    )
+
+    st.dataframe(display_table, use_container_width=True, hide_index=True)
+
+
 def main() -> None:
     st.set_page_config(page_title="CourtVision Analytics", layout="wide")
 
@@ -458,8 +589,14 @@ def main() -> None:
 
     train, test = _load_splits()
 
-    overview_tab, explorer_tab, performance_tab, playground_tab = st.tabs(
-        ["Overview", "Shot Quality Explorer", "Model Performance", "Prediction Playground"]
+    overview_tab, explorer_tab, performance_tab, playground_tab, edge_tab = st.tabs(
+        [
+            "Overview",
+            "Shot Quality Explorer",
+            "Model Performance",
+            "Prediction Playground",
+            "Shot Edge Explorer",
+        ]
     )
 
     with overview_tab:
@@ -473,6 +610,9 @@ def main() -> None:
 
     with playground_tab:
         _render_prediction_playground(test)
+
+    with edge_tab:
+        _render_shot_edge_explorer(test)
 
 
 if __name__ == "__main__":
