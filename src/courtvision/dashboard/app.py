@@ -533,7 +533,7 @@ def _render_shot_edge_explorer(test: pd.DataFrame) -> None:
     if st.button("Score sample"):
         candidate_test = test
         if shot_value_label != "All":
-            candidate_test = filter_shots(test, shot_value=int(shot_value_label))
+            candidate_test = test.loc[test["shot_value"] == int(shot_value_label)]
 
         samples = sample_prediction_rows(candidate_test, n=sample_size)
         if samples.empty:
