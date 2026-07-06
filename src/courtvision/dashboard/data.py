@@ -141,6 +141,7 @@ SHOT_EDGE_TABLE_COLUMNS: tuple[str, ...] = (
     "shot_distance",
     "period",
     "actual_made",
+    "actual_points",
     "predicted_make_probability",
     "expected_shot_value",
     "baseline_make_rate",
@@ -149,6 +150,42 @@ SHOT_EDGE_TABLE_COLUMNS: tuple[str, ...] = (
     "ev_edge_vs_baseline",
     "similar_shot_count",
 )
+
+EDGE_BUCKET_COLUMN = "edge_bucket"
+STRONG_NEGATIVE_EV_EDGE_THRESHOLD = -0.10
+STRONG_POSITIVE_EV_EDGE_THRESHOLD = 0.10
+EDGE_BUCKET_LABELS: tuple[str, ...] = (
+    "Strong negative edge",
+    "Slight negative edge",
+    "Slight positive edge",
+    "Strong positive edge",
+)
+EDGE_BACKTEST_COLUMNS: tuple[str, ...] = (
+    "bucket",
+    "shot_count",
+    "avg_predicted_make_probability",
+    "avg_model_ev",
+    "avg_baseline_ev",
+    "avg_ev_edge",
+    "actual_make_rate",
+    "avg_actual_points",
+    "model_ev_minus_actual_points",
+    "baseline_ev_minus_actual_points",
+)
+
+
+@dataclass(frozen=True)
+class EdgeBacktestSummary:
+    bucket: str
+    shot_count: int
+    avg_predicted_make_probability: float
+    avg_model_ev: float
+    avg_baseline_ev: float
+    avg_ev_edge: float
+    actual_make_rate: float
+    avg_actual_points: float
+    model_ev_minus_actual_points: float
+    baseline_ev_minus_actual_points: float
 
 
 class PredictionResultLike(Protocol):
@@ -645,3 +682,100 @@ def build_shot_edge_table(
         for row_id, result in predictions_by_row_id.items()
     ]
     return pd.DataFrame(rows, columns=list(SHOT_EDGE_TABLE_COLUMNS))
+
+
+def assign_edge_bucket(ev_edge: float) -> str:
+    """Map an EV edge value to a backtest bucket label."""
+    if ev_edge <= STRONG_NEGATIVE_EV_EDGE_THRESHOLD:
+        return EDGE_BUCKET_LABELS[0]
+    if ev_edge <= 0:
+        return EDGE_BUCKET_LABELS[1]
+    if ev_edge < STRONG_POSITIVE_EV_EDGE_THRESHOLD:
+        return EDGE_BUCKET_LABELS[2]
+    return EDGE_BUCKET_LABELS[3]
+
+
+def add_edge_bucket(edge_table: pd.DataFrame) -> pd.DataFrame:
+    """Add an ordered edge-bucket column for backtest grouping."""
+    output = edge_table.copy()
+    if output.empty:
+        output[EDGE_BUCKET_COLUMN] = pd.Categorical(
+            [],
+            categories=list(EDGE_BUCKET_LABELS),
+            ordered=True,
+        )
+        return output
+
+    output[EDGE_BUCKET_COLUMN] = output["ev_edge_vs_baseline"].map(assign_edge_bucket)
+    output[EDGE_BUCKET_COLUMN] = pd.Categorical(
+        output[EDGE_BUCKET_COLUMN],
+        categories=list(EDGE_BUCKET_LABELS),
+        ordered=True,
+    )
+    return output
+
+
+def _empty_edge_backtest_summary(bucket: str) -> EdgeBacktestSummary:
+    return EdgeBacktestSummary(
+        bucket=bucket,
+        shot_count=0,
+        avg_predicted_make_probability=0.0,
+        avg_model_ev=0.0,
+        avg_baseline_ev=0.0,
+        avg_ev_edge=0.0,
+        actual_make_rate=0.0,
+        avg_actual_points=0.0,
+        model_ev_minus_actual_points=0.0,
+        baseline_ev_minus_actual_points=0.0,
+    )
+
+
+def _mean_actual_make_rate(frame: pd.DataFrame) -> float:
+    known_outcomes = frame["actual_made"].dropna()
+    if known_outcomes.empty:
+        return 0.0
+    return float(known_outcomes.astype(bool).mean())
+
+
+def _mean_actual_points(frame: pd.DataFrame) -> float:
+    known_points = frame["actual_points"].dropna()
+    if known_points.empty:
+        return 0.0
+    return float(known_points.mean())
+
+
+def summarize_edge_backtest(edge_table: pd.DataFrame) -> pd.DataFrame:
+    """Summarize scored shots by model EV edge bucket."""
+    if edge_table.empty:
+        return pd.DataFrame(columns=list(EDGE_BACKTEST_COLUMNS))
+
+    bucketed = add_edge_bucket(edge_table)
+    summaries: list[EdgeBacktestSummary] = []
+    for bucket in EDGE_BUCKET_LABELS:
+        subset = bucketed.loc[bucketed[EDGE_BUCKET_COLUMN] == bucket]
+        if subset.empty:
+            summaries.append(_empty_edge_backtest_summary(bucket))
+            continue
+
+        avg_model_ev = float(subset["expected_shot_value"].mean())
+        avg_baseline_ev = float(subset["baseline_expected_value"].mean())
+        avg_actual_points = _mean_actual_points(subset)
+
+        summaries.append(
+            EdgeBacktestSummary(
+                bucket=bucket,
+                shot_count=len(subset),
+                avg_predicted_make_probability=float(
+                    subset["predicted_make_probability"].mean()
+                ),
+                avg_model_ev=avg_model_ev,
+                avg_baseline_ev=avg_baseline_ev,
+                avg_ev_edge=float(subset["ev_edge_vs_baseline"].mean()),
+                actual_make_rate=_mean_actual_make_rate(subset),
+                avg_actual_points=avg_actual_points,
+                model_ev_minus_actual_points=avg_model_ev - avg_actual_points,
+                baseline_ev_minus_actual_points=avg_baseline_ev - avg_actual_points,
+            )
+        )
+
+    return pd.DataFrame(summaries, columns=list(EDGE_BACKTEST_COLUMNS))

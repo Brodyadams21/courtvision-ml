@@ -10,12 +10,15 @@ import pytest
 
 from courtvision.dashboard.data import (
     DISTANCE_BUCKET_LABELS,
+    EDGE_BUCKET_LABELS,
     PREDICTION_DISPLAY_COLUMNS,
     PREDICTION_FEATURE_COLUMNS,
     PREDICTION_ROW_ID_COLUMN,
     BaselineShotProfile,
     actual_points_for_row,
     add_distance_bucket,
+    add_edge_bucket,
+    assign_edge_bucket,
     baseline_for_similar_shots,
     build_shot_edge_row,
     build_shot_edge_table,
@@ -30,6 +33,7 @@ from courtvision.dashboard.data import (
     prepare_prediction_features,
     sample_prediction_rows,
     summarize_by_distance_bucket,
+    summarize_edge_backtest,
     top_feature_importance,
 )
 from courtvision.dashboard.prediction import DashboardPredictionResult
@@ -456,6 +460,51 @@ def test_top_feature_importance_handles_n_larger_than_row_count() -> None:
     assert top["feature"].tolist() == ["a", "b"]
 
 
+def test_existing_model_artifact_paths_returns_empty_dict_when_files_are_missing(
+    tmp_path: Path,
+) -> None:
+    artifacts = existing_model_artifact_paths(
+        calibration_curve_path=tmp_path / "missing_calibration.png",
+        probability_distribution_path=tmp_path / "missing_distribution.png",
+        feature_importance_gain_path=tmp_path / "missing_importance.png",
+    )
+
+    assert artifacts == {}
+
+
+def test_existing_model_artifact_paths_returns_only_files_that_exist(tmp_path: Path) -> None:
+    importance_path = tmp_path / "lightgbm_feature_importance_gain.png"
+    importance_path.write_bytes(b"png")
+
+    artifacts = existing_model_artifact_paths(
+        calibration_curve_path=tmp_path / "missing_calibration.png",
+        probability_distribution_path=tmp_path / "missing_distribution.png",
+        feature_importance_gain_path=importance_path,
+    )
+
+    assert set(artifacts) == {"feature_importance_gain"}
+    assert artifacts["feature_importance_gain"] == importance_path.resolve()
+
+
+def test_existing_model_artifact_paths_includes_calibration_and_distribution_when_present(
+    tmp_path: Path,
+) -> None:
+    calibration_path = tmp_path / "lightgbm_calibration_curve.png"
+    distribution_path = tmp_path / "lightgbm_probability_distribution.png"
+    calibration_path.write_bytes(b"calibration")
+    distribution_path.write_bytes(b"distribution")
+
+    artifacts = existing_model_artifact_paths(
+        calibration_curve_path=calibration_path,
+        probability_distribution_path=distribution_path,
+        feature_importance_gain_path=tmp_path / "missing_importance.png",
+    )
+
+    assert set(artifacts) == {"calibration_curve", "probability_distribution"}
+    assert artifacts["calibration_curve"] == calibration_path.resolve()
+    assert artifacts["probability_distribution"] == distribution_path.resolve()
+
+
 def test_sample_prediction_rows_returns_expected_display_columns() -> None:
     test = _shot_frame(n_rows=5)
 
@@ -666,6 +715,9 @@ def test_build_shot_edge_table_returns_one_row_per_prediction() -> None:
 
     assert len(table) == 2
     assert set(table["row_id"]) == {1, 2}
+    assert "actual_points" in table.columns
+    assert table.loc[table["row_id"] == 1, "actual_points"].iloc[0] == pytest.approx(2.0)
+    assert table.loc[table["row_id"] == 2, "actual_points"].iloc[0] == pytest.approx(0.0)
 
 
 def test_build_shot_edge_table_can_be_sorted_by_ev_edge() -> None:
@@ -687,49 +739,148 @@ def test_build_shot_edge_table_can_be_sorted_by_ev_edge() -> None:
     assert sorted_table.iloc[0]["row_id"] == 2
 
 
-def test_existing_model_artifact_paths_returns_empty_dict_when_files_are_missing(
-    tmp_path: Path,
-) -> None:
-    artifacts = existing_model_artifact_paths(
-        calibration_curve_path=tmp_path / "missing_calibration.png",
-        probability_distribution_path=tmp_path / "missing_distribution.png",
-        feature_importance_gain_path=tmp_path / "missing_importance.png",
+def _edge_table_row(
+    *,
+    row_id: int,
+    ev_edge: float,
+    actual_made: bool,
+    actual_points: float,
+    predicted_make_probability: float = 0.5,
+    expected_shot_value: float = 1.0,
+    baseline_expected_value: float = 0.9,
+) -> dict[str, object]:
+    return {
+        "row_id": row_id,
+        "shot_value": 2,
+        "shot_distance": 10.0,
+        "period": 1,
+        "actual_made": actual_made,
+        "actual_points": actual_points,
+        "predicted_make_probability": predicted_make_probability,
+        "expected_shot_value": expected_shot_value,
+        "baseline_make_rate": 0.45,
+        "baseline_expected_value": baseline_expected_value,
+        "probability_edge_vs_baseline": predicted_make_probability - 0.45,
+        "ev_edge_vs_baseline": ev_edge,
+        "similar_shot_count": 10,
+    }
+
+
+def test_add_edge_bucket_assigns_expected_buckets() -> None:
+    edge_table = pd.DataFrame(
+        [
+            _edge_table_row(row_id=1, ev_edge=-0.20, actual_made=False, actual_points=0.0),
+            _edge_table_row(row_id=2, ev_edge=-0.05, actual_made=False, actual_points=0.0),
+            _edge_table_row(row_id=3, ev_edge=0.05, actual_made=True, actual_points=2.0),
+            _edge_table_row(row_id=4, ev_edge=0.15, actual_made=True, actual_points=2.0),
+        ]
     )
 
-    assert artifacts == {}
+    bucketed = add_edge_bucket(edge_table)
+
+    assert bucketed["edge_bucket"].tolist() == list(EDGE_BUCKET_LABELS)
+    assert assign_edge_bucket(-0.10) == "Strong negative edge"
+    assert assign_edge_bucket(0.0) == "Slight negative edge"
+    assert assign_edge_bucket(0.10) == "Strong positive edge"
 
 
-def test_existing_model_artifact_paths_returns_only_files_that_exist(tmp_path: Path) -> None:
-    importance_path = tmp_path / "lightgbm_feature_importance_gain.png"
-    importance_path.write_bytes(b"png")
-
-    artifacts = existing_model_artifact_paths(
-        calibration_curve_path=tmp_path / "missing_calibration.png",
-        probability_distribution_path=tmp_path / "missing_distribution.png",
-        feature_importance_gain_path=importance_path,
+def test_summarize_edge_backtest_returns_one_row_per_bucket() -> None:
+    edge_table = pd.DataFrame(
+        [
+            _edge_table_row(row_id=1, ev_edge=-0.20, actual_made=False, actual_points=0.0),
+            _edge_table_row(row_id=2, ev_edge=0.15, actual_made=True, actual_points=2.0),
+        ]
     )
 
-    assert set(artifacts) == {"feature_importance_gain"}
-    assert artifacts["feature_importance_gain"] == importance_path.resolve()
+    summary = summarize_edge_backtest(edge_table)
+
+    assert len(summary) == len(EDGE_BUCKET_LABELS)
+    assert list(summary["bucket"]) == list(EDGE_BUCKET_LABELS)
 
 
-def test_existing_model_artifact_paths_includes_calibration_and_distribution_when_present(
-    tmp_path: Path,
-) -> None:
-    calibration_path = tmp_path / "lightgbm_calibration_curve.png"
-    distribution_path = tmp_path / "lightgbm_probability_distribution.png"
-    calibration_path.write_bytes(b"calibration")
-    distribution_path.write_bytes(b"distribution")
-
-    artifacts = existing_model_artifact_paths(
-        calibration_curve_path=calibration_path,
-        probability_distribution_path=distribution_path,
-        feature_importance_gain_path=tmp_path / "missing_importance.png",
+def test_summarize_edge_backtest_computes_actual_make_rate() -> None:
+    edge_table = pd.DataFrame(
+        [
+            _edge_table_row(row_id=1, ev_edge=0.15, actual_made=True, actual_points=2.0),
+            _edge_table_row(row_id=2, ev_edge=0.12, actual_made=False, actual_points=0.0),
+        ]
     )
 
-    assert set(artifacts) == {"calibration_curve", "probability_distribution"}
-    assert artifacts["calibration_curve"] == calibration_path.resolve()
-    assert artifacts["probability_distribution"] == distribution_path.resolve()
+    summary = summarize_edge_backtest(edge_table)
+    strong_positive = summary.loc[summary["bucket"] == "Strong positive edge"].iloc[0]
+
+    assert strong_positive["shot_count"] == 2
+    assert strong_positive["actual_make_rate"] == pytest.approx(0.5)
+
+
+def test_summarize_edge_backtest_computes_average_model_ev() -> None:
+    edge_table = pd.DataFrame(
+        [
+            _edge_table_row(
+                row_id=1,
+                ev_edge=-0.20,
+                actual_made=False,
+                actual_points=0.0,
+                expected_shot_value=0.80,
+            ),
+            _edge_table_row(
+                row_id=2,
+                ev_edge=-0.15,
+                actual_made=True,
+                actual_points=2.0,
+                expected_shot_value=1.00,
+            ),
+        ]
+    )
+
+    summary = summarize_edge_backtest(edge_table)
+    strong_negative = summary.loc[summary["bucket"] == "Strong negative edge"].iloc[0]
+
+    assert strong_negative["avg_model_ev"] == pytest.approx(0.90)
+
+
+def test_summarize_edge_backtest_computes_average_baseline_ev() -> None:
+    edge_table = pd.DataFrame(
+        [
+            _edge_table_row(
+                row_id=1,
+                ev_edge=0.05,
+                actual_made=True,
+                actual_points=2.0,
+                baseline_expected_value=0.80,
+            ),
+            _edge_table_row(
+                row_id=2,
+                ev_edge=0.04,
+                actual_made=False,
+                actual_points=0.0,
+                baseline_expected_value=1.00,
+            ),
+        ]
+    )
+
+    summary = summarize_edge_backtest(edge_table)
+    slight_positive = summary.loc[summary["bucket"] == "Slight positive edge"].iloc[0]
+
+    assert slight_positive["avg_baseline_ev"] == pytest.approx(0.90)
+
+
+def test_summarize_edge_backtest_handles_empty_edge_table() -> None:
+    summary = summarize_edge_backtest(pd.DataFrame())
+
+    assert summary.empty
+    assert list(summary.columns) == [
+        "bucket",
+        "shot_count",
+        "avg_predicted_make_probability",
+        "avg_model_ev",
+        "avg_baseline_ev",
+        "avg_ev_edge",
+        "actual_make_rate",
+        "avg_actual_points",
+        "model_ev_minus_actual_points",
+        "baseline_ev_minus_actual_points",
+    ]
 
 
 def test_empty_filtered_data_does_not_crash() -> None:

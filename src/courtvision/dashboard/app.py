@@ -30,6 +30,7 @@ from courtvision.dashboard.data import (  # noqa: E402
     prepare_prediction_features,
     sample_prediction_rows,
     summarize_by_distance_bucket,
+    summarize_edge_backtest,
     top_feature_importance,
 )
 from courtvision.dashboard.prediction import (  # noqa: E402
@@ -621,6 +622,145 @@ def _render_shot_edge_explorer(test: pd.DataFrame) -> None:
     st.dataframe(display_table, use_container_width=True, hide_index=True)
 
 
+def _weighted_backtest_average(summary: pd.DataFrame, column: str) -> float:
+    active = summary.loc[summary["shot_count"] > 0]
+    if active.empty:
+        return 0.0
+    total_shots = int(active["shot_count"].sum())
+    return float((active[column] * active["shot_count"]).sum() / total_shots)
+
+
+def _edge_backtest_interpretation(summary: pd.DataFrame) -> str:
+    active = summary.loc[summary["shot_count"] > 0]
+    if active.empty:
+        return "Run a backtest sample to compare positive- and negative-edge buckets."
+
+    positive = active.loc[active["bucket"].str.endswith("positive edge")]
+    negative = active.loc[active["bucket"].str.endswith("negative edge")]
+    if positive.empty or negative.empty:
+        return (
+            "This sample does not include both positive- and negative-edge buckets, "
+            "so directional comparison is limited."
+        )
+
+    positive_make_rate = _weighted_backtest_average(positive, "actual_make_rate")
+    negative_make_rate = _weighted_backtest_average(negative, "actual_make_rate")
+    positive_points = _weighted_backtest_average(positive, "avg_actual_points")
+    negative_points = _weighted_backtest_average(negative, "avg_actual_points")
+
+    if positive_make_rate > negative_make_rate or positive_points > negative_points:
+        return (
+            "For this sample, positive-edge buckets show higher actual make rate or "
+            "actual points than negative-edge buckets, so the model edge signal is "
+            "behaving in the expected direction."
+        )
+
+    return (
+        "For this sample, positive-edge buckets did not clearly outperform "
+        "negative-edge buckets on actual make rate or actual points."
+    )
+
+
+def _render_edge_backtest(test: pd.DataFrame) -> None:
+    st.subheader("Edge Backtest")
+    st.caption(
+        "Group scored held-out shots by model EV edge and compare model, baseline, "
+        "and actual outcomes."
+    )
+
+    model_service = _load_model_service()
+    if model_service is None:
+        st.warning(PREDICTION_UNAVAILABLE_MESSAGE)
+        return
+
+    sample_size = int(st.selectbox("Sample size", options=["100", "250", "500"], index=0))
+
+    if st.button("Run backtest"):
+        samples = sample_prediction_rows(test, n=sample_size)
+        if samples.empty:
+            st.warning("No test shots available for backtest.")
+            return
+
+        predictions_by_row_id = {}
+        errors: list[str] = []
+        for row_id in samples[PREDICTION_ROW_ID_COLUMN]:
+            try:
+                prepared = prepare_prediction_features(get_prediction_row(test, row_id))
+                predictions_by_row_id[int(row_id)] = predict_prepared_shot(
+                    prepared,
+                    service=model_service,
+                )
+            except (PredictionUnavailable, KeyError, ValueError) as exc:
+                errors.append(f"Row {row_id}: {exc}")
+
+        if errors:
+            st.warning("Some shots could not be scored:\n" + "\n".join(errors))
+
+        if not predictions_by_row_id:
+            st.error("No shots were scored successfully.")
+            return
+
+        edge_table = build_shot_edge_table(test, predictions_by_row_id)
+        backtest_summary = summarize_edge_backtest(edge_table)
+        st.session_state["edge_backtest_table"] = edge_table
+        st.session_state["edge_backtest_summary"] = backtest_summary
+
+    edge_table = st.session_state.get("edge_backtest_table")
+    backtest_summary = st.session_state.get("edge_backtest_summary")
+    if edge_table is None or backtest_summary is None or edge_table.empty:
+        st.info("Choose a sample size and click **Run backtest** to evaluate edge buckets.")
+        return
+
+    summary_col1, summary_col2, summary_col3, summary_col4, summary_col5 = st.columns(5)
+
+    with summary_col1:
+        st.metric("Shots scored", f"{len(edge_table):,}")
+    with summary_col2:
+        st.metric(
+            "Avg predicted make rate",
+            f"{edge_table['predicted_make_probability'].mean():.1%}",
+        )
+    with summary_col3:
+        st.metric("Avg model EV", f"{edge_table['expected_shot_value'].mean():.2f}")
+    with summary_col4:
+        st.metric(
+            "Avg baseline EV",
+            f"{edge_table['baseline_expected_value'].mean():.2f}",
+        )
+    with summary_col5:
+        st.metric("Avg EV edge", f"{edge_table['ev_edge_vs_baseline'].mean():+.3f}")
+
+    display_summary = backtest_summary.copy()
+    display_summary["avg_predicted_make_probability"] = display_summary[
+        "avg_predicted_make_probability"
+    ].map(lambda value: f"{value:.1%}")
+    display_summary["actual_make_rate"] = display_summary["actual_make_rate"].map(
+        lambda value: f"{value:.1%}"
+    )
+    for column in ("avg_model_ev", "avg_baseline_ev", "avg_actual_points"):
+        display_summary[column] = display_summary[column].map(lambda value: f"{value:.2f}")
+    signed_columns = (
+        "avg_ev_edge",
+        "model_ev_minus_actual_points",
+        "baseline_ev_minus_actual_points",
+    )
+    for column in signed_columns:
+        display_summary[column] = display_summary[column].map(_format_signed_points)
+
+    st.markdown("#### Edge bucket backtest")
+    st.dataframe(display_summary, use_container_width=True, hide_index=True)
+
+    chart_data = backtest_summary.loc[backtest_summary["shot_count"] > 0].set_index("bucket")[
+        ["avg_actual_points", "avg_model_ev", "avg_baseline_ev"]
+    ]
+    if not chart_data.empty:
+        st.markdown("#### Actual points vs model EV vs baseline EV")
+        st.bar_chart(chart_data)
+
+    st.info(_edge_backtest_interpretation(backtest_summary))
+    st.caption("This is a sampled diagnostic, not proof of future performance.")
+
+
 def main() -> None:
     st.set_page_config(page_title="CourtVision Analytics", layout="wide")
 
@@ -634,13 +774,14 @@ def main() -> None:
 
     train, test = _load_splits()
 
-    overview_tab, explorer_tab, performance_tab, playground_tab, edge_tab = st.tabs(
+    overview_tab, explorer_tab, performance_tab, playground_tab, edge_tab, backtest_tab = st.tabs(
         [
             "Overview",
             "Shot Quality Explorer",
             "Model Performance",
             "Prediction Playground",
             "Shot Edge Explorer",
+            "Edge Backtest",
         ]
     )
 
@@ -658,6 +799,9 @@ def main() -> None:
 
     with edge_tab:
         _render_shot_edge_explorer(test)
+
+    with backtest_tab:
+        _render_edge_backtest(test)
 
 
 if __name__ == "__main__":
