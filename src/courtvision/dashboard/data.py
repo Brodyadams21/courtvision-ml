@@ -573,6 +573,24 @@ def prepare_prediction_features(row: pd.Series) -> PreparedPredictionFeatures:
     return PreparedPredictionFeatures(features=features, shot_value=shot_value)
 
 
+def prepare_prediction_batch(
+    test: pd.DataFrame,
+    row_ids: list[int],
+) -> tuple[dict[int, PreparedPredictionFeatures], list[str]]:
+    """Prepare model inputs for a batch of test-set row IDs."""
+    prepared_by_row_id: dict[int, PreparedPredictionFeatures] = {}
+    errors: list[str] = []
+
+    for row_id in row_ids:
+        try:
+            row = get_prediction_row(test, row_id)
+            prepared_by_row_id[int(row_id)] = prepare_prediction_features(row)
+        except (KeyError, ValueError) as exc:
+            errors.append(f"Row {row_id}: {exc}")
+
+    return prepared_by_row_id, errors
+
+
 def _series_row(row: pd.Series | dict[str, object]) -> pd.Series:
     if isinstance(row, pd.Series):
         return row

@@ -30,6 +30,7 @@ from courtvision.dashboard.data import (
     get_prediction_row,
     load_feature_importance,
     load_training_summary,
+    prepare_prediction_batch,
     prepare_prediction_features,
     sample_prediction_rows,
     summarize_by_distance_bucket,
@@ -577,6 +578,40 @@ def test_prepare_prediction_features_includes_all_remaining_expected_feature_col
 
     assert set(prepared.features) == set(PREDICTION_FEATURE_COLUMNS)
     assert len(prepared.features) == len(PREDICTION_FEATURE_COLUMNS)
+
+
+def test_prepare_prediction_batch_returns_prepared_rows_for_valid_row_ids() -> None:
+    test = _shot_frame(n_rows=3)
+    test.index = [10, 20, 30]
+
+    prepared_by_row_id, errors = prepare_prediction_batch(test, [10, 30])
+
+    assert set(prepared_by_row_id) == {10, 30}
+    assert errors == []
+    for prepared in prepared_by_row_id.values():
+        assert set(prepared.features) == set(PREDICTION_FEATURE_COLUMNS)
+
+
+def test_prepare_prediction_batch_collects_errors_for_invalid_row_ids() -> None:
+    test = _shot_frame(n_rows=2)
+    test.index = [1, 2]
+
+    prepared_by_row_id, errors = prepare_prediction_batch(test, [1, 99])
+
+    assert set(prepared_by_row_id) == {1}
+    assert len(errors) == 1
+    assert errors[0].startswith("Row 99:")
+
+
+def test_prepare_prediction_batch_continues_after_one_bad_row() -> None:
+    test = _shot_frame(n_rows=2)
+    test.index = [1, 2]
+
+    prepared_by_row_id, errors = prepare_prediction_batch(test, [99, 1, 2])
+
+    assert set(prepared_by_row_id) == {1, 2}
+    assert len(errors) == 1
+    assert errors[0].startswith("Row 99:")
 
 
 def test_actual_points_for_row_returns_shot_value_for_made_shot() -> None:

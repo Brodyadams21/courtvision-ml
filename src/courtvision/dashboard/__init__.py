@@ -37,6 +37,7 @@ from courtvision.dashboard.data import (
     load_dashboard_splits,
     load_feature_importance,
     load_training_summary,
+    prepare_prediction_batch,
     prepare_prediction_features,
     sample_prediction_rows,
     summarize_by_distance_bucket,
@@ -44,10 +45,12 @@ from courtvision.dashboard.data import (
     top_feature_importance,
 )
 from courtvision.dashboard.prediction import (
+    BatchPredictionResult,
     DashboardPredictionResult,
     PredictionUnavailable,
     create_model_service,
     predict_prepared_shot,
+    predict_prepared_shots,
 )
 
 __all__ = [
@@ -63,6 +66,7 @@ __all__ = [
     "PREDICTION_FEATURE_COLUMNS",
     "PREDICTION_ROW_ID_COLUMN",
     "BaselineShotProfile",
+    "BatchPredictionResult",
     "DashboardPredictionResult",
     "EdgeBacktestSummary",
     "ModelPerformanceSummary",
@@ -91,6 +95,8 @@ __all__ = [
     "load_feature_importance",
     "load_training_summary",
     "predict_prepared_shot",
+    "predict_prepared_shots",
+    "prepare_prediction_batch",
     "prepare_prediction_features",
     "sample_prediction_rows",
     "summarize_by_distance_bucket",

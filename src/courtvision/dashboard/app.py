@@ -27,6 +27,7 @@ from courtvision.dashboard.data import (  # noqa: E402
     load_dashboard_splits,
     load_feature_importance,
     load_training_summary,
+    prepare_prediction_batch,
     prepare_prediction_features,
     sample_prediction_rows,
     summarize_by_distance_bucket,
@@ -37,6 +38,7 @@ from courtvision.dashboard.prediction import (  # noqa: E402
     PREDICTION_UNAVAILABLE_MESSAGE,
     PredictionUnavailable,
     predict_prepared_shot,
+    predict_prepared_shots,
 )
 from courtvision.dashboard.prediction import (  # noqa: E402
     create_model_service as _create_model_service,
@@ -335,6 +337,22 @@ def _format_shot_result(made_flag: object) -> str:
     return "Made" if bool(made_flag) else "Missed"
 
 
+def _show_batch_errors(errors: list[str]) -> None:
+    if errors:
+        st.warning("Some shots could not be scored:\n" + "\n".join(errors))
+
+
+def _batch_score_row_ids(
+    test: pd.DataFrame,
+    row_ids: list[int],
+    *,
+    service,
+) -> tuple[dict[int, object], list[str]]:
+    prepared_by_row_id, prep_errors = prepare_prediction_batch(test, row_ids)
+    batch_result = predict_prepared_shots(prepared_by_row_id, service=service)
+    return batch_result.predictions_by_row_id, prep_errors + batch_result.errors
+
+
 def _format_signed_points(value: float, *, precision: int = 2) -> str:
     sign = "+" if value > 0 else ""
     return f"{sign}{value:.{precision}f}"
@@ -540,20 +558,15 @@ def _render_shot_edge_explorer(test: pd.DataFrame) -> None:
             st.warning("No test shots match the selected filters.")
             return
 
-        predictions_by_row_id = {}
-        errors: list[str] = []
-        for row_id in samples[PREDICTION_ROW_ID_COLUMN]:
-            try:
-                prepared = prepare_prediction_features(get_prediction_row(test, row_id))
-                predictions_by_row_id[int(row_id)] = predict_prepared_shot(
-                    prepared,
-                    service=model_service,
-                )
-            except (PredictionUnavailable, KeyError, ValueError) as exc:
-                errors.append(f"Row {row_id}: {exc}")
+        row_ids = [int(row_id) for row_id in samples[PREDICTION_ROW_ID_COLUMN]]
+        with st.spinner("Scoring sample..."):
+            predictions_by_row_id, errors = _batch_score_row_ids(
+                test,
+                row_ids,
+                service=model_service,
+            )
 
-        if errors:
-            st.warning("Some shots could not be scored:\n" + "\n".join(errors))
+        _show_batch_errors(errors)
 
         if not predictions_by_row_id:
             st.error("No shots were scored successfully.")
@@ -565,11 +578,25 @@ def _render_shot_edge_explorer(test: pd.DataFrame) -> None:
             ascending=ascending,
         ).reset_index(drop=True)
         st.session_state["shot_edge_table"] = edge_table
+        st.session_state["shot_edge_meta"] = {
+            "sample_size": sample_size,
+            "shot_value_filter": shot_value_label,
+        }
 
     edge_table = st.session_state.get("shot_edge_table")
     if edge_table is None or edge_table.empty:
         st.info("Choose options and click **Score sample** to rank shots by model edge.")
         return
+
+    shot_edge_meta = st.session_state.get("shot_edge_meta")
+    if shot_edge_meta and (
+        shot_edge_meta.get("sample_size") != sample_size
+        or shot_edge_meta.get("shot_value_filter") != shot_value_label
+    ):
+        st.warning(
+            "Controls changed since the last scored sample. "
+            "Click **Score sample** to refresh results."
+        )
 
     if sort_by in sort_column_map:
         edge_table = edge_table.sort_values(
@@ -620,6 +647,13 @@ def _render_shot_edge_explorer(test: pd.DataFrame) -> None:
     )
 
     st.dataframe(display_table, use_container_width=True, hide_index=True)
+
+    st.download_button(
+        label="Download scored edge table CSV",
+        data=edge_table.to_csv(index=False),
+        file_name="courtvision_shot_edge_sample.csv",
+        mime="text/csv",
+    )
 
 
 def _weighted_backtest_average(summary: pd.DataFrame, column: str) -> float:
@@ -681,20 +715,15 @@ def _render_edge_backtest(test: pd.DataFrame) -> None:
             st.warning("No test shots available for backtest.")
             return
 
-        predictions_by_row_id = {}
-        errors: list[str] = []
-        for row_id in samples[PREDICTION_ROW_ID_COLUMN]:
-            try:
-                prepared = prepare_prediction_features(get_prediction_row(test, row_id))
-                predictions_by_row_id[int(row_id)] = predict_prepared_shot(
-                    prepared,
-                    service=model_service,
-                )
-            except (PredictionUnavailable, KeyError, ValueError) as exc:
-                errors.append(f"Row {row_id}: {exc}")
+        row_ids = [int(row_id) for row_id in samples[PREDICTION_ROW_ID_COLUMN]]
+        with st.spinner("Scoring sample..."):
+            predictions_by_row_id, errors = _batch_score_row_ids(
+                test,
+                row_ids,
+                service=model_service,
+            )
 
-        if errors:
-            st.warning("Some shots could not be scored:\n" + "\n".join(errors))
+        _show_batch_errors(errors)
 
         if not predictions_by_row_id:
             st.error("No shots were scored successfully.")
@@ -704,12 +733,20 @@ def _render_edge_backtest(test: pd.DataFrame) -> None:
         backtest_summary = summarize_edge_backtest(edge_table)
         st.session_state["edge_backtest_table"] = edge_table
         st.session_state["edge_backtest_summary"] = backtest_summary
+        st.session_state["edge_backtest_meta"] = {"sample_size": sample_size}
 
     edge_table = st.session_state.get("edge_backtest_table")
     backtest_summary = st.session_state.get("edge_backtest_summary")
     if edge_table is None or backtest_summary is None or edge_table.empty:
         st.info("Choose a sample size and click **Run backtest** to evaluate edge buckets.")
         return
+
+    backtest_meta = st.session_state.get("edge_backtest_meta")
+    if backtest_meta and backtest_meta.get("sample_size") != sample_size:
+        st.warning(
+            "Controls changed since the last backtest run. "
+            "Click **Run backtest** to refresh results."
+        )
 
     summary_col1, summary_col2, summary_col3, summary_col4, summary_col5 = st.columns(5)
 
@@ -759,6 +796,22 @@ def _render_edge_backtest(test: pd.DataFrame) -> None:
 
     st.info(_edge_backtest_interpretation(backtest_summary))
     st.caption("This is a sampled diagnostic, not proof of future performance.")
+
+    download_col1, download_col2 = st.columns(2)
+    with download_col1:
+        st.download_button(
+            label="Download backtest summary CSV",
+            data=backtest_summary.to_csv(index=False),
+            file_name="courtvision_edge_backtest_summary.csv",
+            mime="text/csv",
+        )
+    with download_col2:
+        st.download_button(
+            label="Download scored backtest shots CSV",
+            data=edge_table.to_csv(index=False),
+            file_name="courtvision_edge_backtest_shots.csv",
+            mime="text/csv",
+        )
 
 
 def main() -> None:

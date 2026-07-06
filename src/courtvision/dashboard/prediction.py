@@ -24,6 +24,12 @@ class DashboardPredictionResult:
     model_name: str
 
 
+@dataclass(frozen=True)
+class BatchPredictionResult:
+    predictions_by_row_id: dict[int, DashboardPredictionResult]
+    errors: list[str]
+
+
 def create_model_service() -> ShotModelService:
     """Create a loaded ``ShotModelService`` from the MLflow Candidate model."""
     service = ShotModelService()
@@ -58,4 +64,25 @@ def predict_prepared_shot(
         predicted_make_probability=response.predicted_make_probability,
         expected_shot_value=response.expected_shot_value,
         model_name=response.model_name,
+    )
+
+
+def predict_prepared_shots(
+    prepared_by_row_id: dict[int, PreparedPredictionFeatures],
+    *,
+    service: ShotModelService,
+) -> BatchPredictionResult:
+    """Predict make probability and expected value for a batch of prepared shots."""
+    predictions_by_row_id: dict[int, DashboardPredictionResult] = {}
+    errors: list[str] = []
+
+    for row_id, prepared in prepared_by_row_id.items():
+        try:
+            predictions_by_row_id[row_id] = predict_prepared_shot(prepared, service=service)
+        except Exception as exc:
+            errors.append(f"Row {row_id}: {exc}")
+
+    return BatchPredictionResult(
+        predictions_by_row_id=predictions_by_row_id,
+        errors=errors,
     )
