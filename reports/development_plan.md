@@ -1,12 +1,14 @@
 # CourtVision ML - Development Plan Status
 
-Last reviewed: 2026-06-18
+Last reviewed: 2026-07-06
 
 This is the repository-facing status snapshot for the 13-phase CourtVision ML development plan. It records what is implemented on `main`; it does not mark placeholder files as completed work.
 
 ## Current position
 
-The project is **through Phase 8 and actively in Phase 9**. The local and Docker portions of Phase 9 are complete. Managed AWS execution remains unfinished. Phases 10-12 have placeholder paths but no implementation, and Phase 13 is partially complete.
+The project is **through Phase 8**, has **partial Phase 9 cloud infrastructure**, has a **basic Phase 10 local FastAPI inference service**, and has a **complete local Phase 11 Streamlit analytics dashboard**. **Phase 12 monitoring** remains not started. **Phase 13 documentation and portfolio polish** are in progress.
+
+Phase 9 cloud execution is still **blocked/incomplete**: managed SageMaker training has not successfully run, and S3 transfer plus cloud registry verification remain open.
 
 | Phase | Goal | Status | Evidence / remaining work |
 |------:|------|--------|---------------------------|
@@ -19,11 +21,15 @@ The project is **through Phase 8 and actively in Phase 9**. The local and Docker
 | 6 | LightGBM candidate and registry | Complete | Time-based search, leakage audit, feature importance, MLflow model logging, and Candidate alias workflow |
 | 7 | PyTorch and spatial/sequence modeling | Complete, exceeds plan | Tabular/spatial MLPs plus GRU v3 with prior-event sequences, pressure features, inference bundle, tests, and report |
 | 8 | Expected shot value and player evaluation | Complete | GRU scoring, ESV/actual/above-expected calculations, player/team/zone/trend summaries, and basketball insights |
-| 9 | Cloud-assisted training | In progress | Config-driven local runner, Docker image, Linux lock, and MLflow wiring complete; S3 transfer, SageMaker pipeline/job, and cloud registry verification remain |
-| 10 | FastAPI inference service | Not started | `courtvision.api` files are empty; endpoints, schemas, request logging, tests, and API image remain |
-| 11 | Streamlit dashboard | Not started | `dashboard/app.py` is empty; planned views remain |
+| 9 | Cloud-assisted training | In progress / blocked | Config-driven local runner, Docker image, Linux lock, and MLflow wiring complete; S3 transfer, SageMaker pipeline/job, and cloud registry verification remain; managed training not yet run successfully |
+| 10 | FastAPI inference service | Partial / local complete | `courtvision.api` has `/health` and `/predict/shot`, Pydantic schemas, `ShotModelService`, and tests; batch endpoint, startup model loading, request/response logging, Docker/API image, and production deployment docs remain |
+| 11 | Streamlit dashboard | Complete local dashboard | Six-tab Streamlit dashboard, MLflow Candidate scoring, model diagnostics, Shot Edge Explorer, Edge Backtest, CSV exports, and `docs/dashboard.md` |
 | 12 | Monitoring and retraining | Not started | Monitoring modules are empty; drift, segment calibration, reports, triggers, and dashboard integration remain |
-| 13 | Final documentation and portfolio polish | In progress | README, model reports, model card, architecture, training guide, and layout are present; demo media and final presentation/resume material remain |
+| 13 | Final documentation and portfolio polish | In progress | README, `docs/dashboard.md`, `reports/dashboard_summary.md`, model reports, model card, architecture, training guide, and layout are present; demo media and final presentation/resume material remain |
+
+## Out-of-order work completed
+
+Phase 10 and Phase 11 were advanced locally while Phase 9 cloud execution remained blocked by SageMaker quota/capacity limits. This kept the project moving without claiming cloud production readiness. The FastAPI service and Streamlit dashboard both load the registered LightGBM **Candidate** from local MLflow; neither depends on a successful managed cloud training run.
 
 ## Phase 9 completion criteria
 
@@ -35,13 +41,45 @@ Phase 9 should not be marked complete until all of the following are true:
 - Training metrics and artifacts reach a cloud-accessible MLflow backend or an explicitly documented equivalent.
 - The cloud path is covered by focused tests that mock external services rather than requiring AWS credentials in CI.
 
+## Phase 10 completion criteria
+
+**Local (done):**
+
+- `/health` and `/predict/shot` endpoints with Pydantic request/response schemas
+- `ShotModelService` wrapping the registered Candidate model
+- Unit tests for health and prediction paths (`tests/test_api_main.py`)
+
+**Hardening (open):**
+
+- Batch prediction endpoint
+- Explicit startup model loading behavior (fail fast vs. lazy load)
+- Request/response logging
+- Docker/API image
+- Production deployment documentation
+
+## Phase 11 completion criteria
+
+**Local (done):**
+
+- Dashboard loads train/test Parquet splits
+- Model Performance tab reads training artifacts (`training_summary.json`, feature importance, calibration figures)
+- Prediction tabs use MLflow `courtvision-shot-make-model` @ **Candidate**
+- Shot Edge Explorer and Edge Backtest support CSV exports
+- Dashboard documentation exists (`docs/dashboard.md`, `reports/dashboard_summary.md`)
+
+**Polish (open):**
+
+- Player/team evaluation pages
+- Saved screenshots and richer model comparison (LightGBM vs. GRU)
+- Optional deployed demo
+
 ## Recommended order
 
-1. Finish Phase 9 with the smallest credible AWS training path.
-2. Build Phase 10 around the registered LightGBM Candidate first, then add the GRU bundle when sequence assembly is operationally defined.
-3. Build the Phase 11 dashboard on the published report tables and API contract.
-4. Add Phase 12 monitoring and promotion gates before calling either model production-ready.
-5. Finish Phase 13 with screenshots/demo material and a clean reproduction walkthrough.
+1. Keep Phase 9 cloud work paused until quota/capacity allows a credible managed training run or documented dry run.
+2. Harden Phase 10 FastAPI serving around the LightGBM Candidate.
+3. Add Phase 12 monitoring and promotion gates.
+4. Add dashboard polish: player/team pages, screenshots, model comparison.
+5. Finish Phase 13 with demo media, resume bullets, and a clean reproduction walkthrough.
 
 ## Quality gates
 
