@@ -59,6 +59,22 @@ Optional: override the MLflow alias with `COURTVISION_API_MODEL_ALIAS` (default 
 
 Tests inject a fake `ShotModelService` via `create_app(model_service=...)` and never call MLflow, regardless of startup flags.
 
+## Request logging
+
+Every HTTP response includes an `X-Request-ID` header. The value is a UUID generated per request and is also attached to structured log records for correlation.
+
+The API logs operational metadata without feature payloads:
+
+| Log event | When | Fields |
+|-----------|------|--------|
+| `request_completed` | Every request finishes | `request_id`, `path`, `method`, `status_code`, `latency_ms` |
+| `single_prediction` | `/predict/shot` succeeds | `request_id`, `model_name`, `batch_size` (always `1`) |
+| `batch_prediction` | `/predict/shots` succeeds | `request_id`, `model_name`, `batch_size` |
+| `prediction_error` | Prediction mapping errors (`503` / `422`) | `request_id`, `error_type` |
+| `request_failed` | Unhandled server exception | `request_id`, `path`, `method`, `status_code`, `latency_ms`, `error_type` |
+
+Feature dictionaries are intentionally **not** logged. They are large and may contain sensitive or messy upstream data in future integrations. Use `X-Request-ID` to tie client reports to server logs.
+
 ## Example single-shot request
 
 Send every column in `FEATURE_COLUMNS` (`src/courtvision/models/common.py`) in `features`. The top-level `shot_value` must be `2` or `3` (it is also included in the feature dict as `shot_value`).

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -38,6 +39,12 @@ def _batch_request(*shots: dict[str, object]) -> dict[str, list[dict[str, object
 @pytest.fixture
 def client() -> TestClient:
     return TestClient(create_app(model_service=_loaded_model_service()))
+
+
+@pytest.fixture
+def api_caplog(caplog: pytest.LogCaptureFixture) -> pytest.LogCaptureFixture:
+    caplog.set_level(logging.INFO, logger="courtvision.api")
+    return caplog
 
 
 def test_health_returns_ok(client: TestClient) -> None:
@@ -222,3 +229,73 @@ def test_create_app_with_injected_service_skips_startup_loading(
     create_app(model_service=fake_service, load_model_on_startup=True)
 
     load_from_mlflow.assert_not_called()
+
+
+def test_health_response_includes_request_id_header(client: TestClient) -> None:
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert "X-Request-ID" in response.headers
+    assert response.headers["X-Request-ID"]
+
+
+def test_predict_shot_response_includes_request_id_header(client: TestClient) -> None:
+    response = client.post(
+        "/predict/shot",
+        json={"features": _feature_payload(shot_value=3), "shot_value": 3},
+    )
+
+    assert response.status_code == 200
+    assert "X-Request-ID" in response.headers
+    assert response.headers["X-Request-ID"]
+
+
+def test_single_prediction_logs_model_name_and_batch_size(
+    client: TestClient,
+    api_caplog: pytest.LogCaptureFixture,
+) -> None:
+    response = client.post(
+        "/predict/shot",
+        json={"features": _feature_payload(shot_value=3), "shot_value": 3},
+    )
+
+    assert response.status_code == 200
+    assert "single_prediction" in api_caplog.text
+    record = next(r for r in api_caplog.records if r.message == "single_prediction")
+    assert record.request_id
+    assert record.batch_size == 1
+    assert record.model_name == REGISTERED_MODEL_NAME
+    assert "shot_distance" not in api_caplog.text
+
+
+def test_batch_prediction_logs_batch_size(
+    client: TestClient,
+    api_caplog: pytest.LogCaptureFixture,
+) -> None:
+    response = client.post(
+        "/predict/shots",
+        json=_batch_request(_shot_request(shot_value=2), _shot_request(shot_value=3)),
+    )
+
+    assert response.status_code == 200
+    assert "batch_prediction" in api_caplog.text
+    record = next(r for r in api_caplog.records if r.message == "batch_prediction")
+    assert record.batch_size == 2
+    assert record.model_name == REGISTERED_MODEL_NAME
+    assert "player_recent_fg_pct_5" not in api_caplog.text
+
+
+def test_unloaded_model_error_includes_request_id_header(
+    api_caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = TestClient(create_app(model_service=ShotModelService()))
+
+    response = client.post(
+        "/predict/shot",
+        json={"features": _feature_payload(shot_value=2), "shot_value": 2},
+    )
+
+    assert response.status_code == 503
+    assert "X-Request-ID" in response.headers
+    assert response.headers["X-Request-ID"]
+    assert "prediction_error" in api_caplog.text
