@@ -17,5 +17,18 @@ services:
       timeout: 5s
       retries: 5
 
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: courtvision-api
+    environment:
+      PYTHONPATH: /app/src
+      MLFLOW_TRACKING_URI: http://host.docker.internal:5000
+      COURTVISION_API_LOAD_MODEL_ON_STARTUP: "false"
+      COURTVISION_API_MODEL_ALIAS: Candidate
+    ports:
+      - "8000:8000"
+
 volumes:
   courtvision_pgdata:

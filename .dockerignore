@@ -9,6 +9,7 @@ __pycache__/
 .git/
 .gitignore
 
+data/
 data/raw/
 data/processed/
 data/interim/
@@ -20,6 +21,7 @@ model_artifacts/
 artifacts/models/
 
 *.pyc
+*.parquet
 *.pkl
 *.joblib
 *.pt

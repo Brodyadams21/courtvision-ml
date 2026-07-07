@@ -178,6 +178,31 @@ By default, `ShotModelService` must load the MLflow registered model `courtvisio
 
 Unit tests inject a fake `ShotModelService` via `create_app(model_service=...)` and do not require MLflow.
 
+## Docker
+
+Build and run the API image locally. The image installs `requirements-api.txt` (API-focused runtime deps) and copies `src/` and `configs/` only. Raw data, processed Parquet, MLflow stores, and local model artifacts are excluded via `.dockerignore`.
+
+```powershell
+docker build -f Dockerfile.api -t courtvision-api:local .
+docker run --rm -p 8000:8000 `
+  -e PYTHONPATH=/app/src `
+  -e MLFLOW_TRACKING_URI=http://host.docker.internal:5000 `
+  -e COURTVISION_API_LOAD_MODEL_ON_STARTUP=false `
+  courtvision-api:local
+```
+
+Or use Docker Compose:
+
+```powershell
+docker compose up --build api
+```
+
+**Lazy mode (default in Compose):** the container starts without calling MLflow. `GET /health` returns `{"status":"ok"}` immediately. Prediction endpoints return **503** until a model is available.
+
+**Startup mode:** set `COURTVISION_API_LOAD_MODEL_ON_STARTUP=true` and ensure `MLFLOW_TRACKING_URI` points at a reachable tracking server with the configured alias (default `Candidate`). The container fails fast on startup if loading fails.
+
+On Windows and macOS, `host.docker.internal` reaches MLflow running on the host (for example via `scripts/start_mlflow.ps1` on port 5000).
+
 ## Troubleshooting
 
 | Symptom | Likely cause | What to do |

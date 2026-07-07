@@ -1,0 +1,19 @@
+# Minimal runtime dependencies for the CourtVision FastAPI inference service.
+# Versions align with requirements-linux.txt where applicable.
+fastapi==0.137.2
+uvicorn==0.49.0
+mlflow==3.14.0
+lightgbm==4.6.0
+scikit-learn==1.9.0
+pandas==2.3.3
+numpy==2.4.6
+pydantic==2.13.4
+python-dotenv==1.2.2
+pyarrow==24.0.0
+pyyaml==6.0.3
+# Pulled in by courtvision.models.common import chain at app startup.
+matplotlib==3.11.0
+nba-api==1.11.4
+pandera==0.31.1
+sqlalchemy==2.0.51
+requests==2.34.2
