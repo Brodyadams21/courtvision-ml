@@ -35,3 +35,19 @@ class ShotPredictionResponse(BaseModel):
         description="predicted_make_probability * shot_value.",
     )
     model_name: str = Field(description="Registered model identifier used for inference.")
+
+
+class BatchShotPredictionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    shots: list[ShotPredictionRequest] = Field(
+        min_length=1,
+        max_length=500,
+        description="Shot prediction requests to score in one batch.",
+    )
+
+
+class BatchShotPredictionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    predictions: list[ShotPredictionResponse]

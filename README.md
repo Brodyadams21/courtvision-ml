@@ -47,7 +47,7 @@ flowchart LR
 | Data, validation, features, baseline, candidate, deep learning, and basketball evaluation | Complete |
 | Local and Docker training path | Complete |
 | AWS/SageMaker training path | Partial cloud setup; S3 bucket and processed feature upload completed, managed SageMaker training blocked by quota/capacity, cloud MLflow/registry verification remains |
-| FastAPI serving | Basic local inference endpoint complete (`/health`, `/predict/shot`) |
+| FastAPI serving | Basic local inference endpoints complete (`/health`, `/predict/shot`, `/predict/shots`; see `docs/api.md`) |
 | Streamlit analytics dashboard | Complete local dashboard (six tabs, CSV export) |
 | Monitoring | Planned |
 | Final documentation and portfolio polish | In progress |

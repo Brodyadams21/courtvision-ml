@@ -65,6 +65,16 @@ class ShotModelService:
             model_name=self._model_name,
         )
 
+    def predict_shots(
+        self,
+        shots: list[tuple[dict[str, float], int]],
+    ) -> list[ShotPredictionResponse]:
+        """Return make probability and expected value for each shot in order."""
+        return [
+            self.predict_shot(features, shot_value)
+            for features, shot_value in shots
+        ]
+
     def _prepare_feature_frame(
         self,
         features: dict[str, float],

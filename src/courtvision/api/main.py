@@ -7,7 +7,12 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException, Request
 
 from courtvision.api.model_service import ShotModelService
-from courtvision.api.schemas import ShotPredictionRequest, ShotPredictionResponse
+from courtvision.api.schemas import (
+    BatchShotPredictionRequest,
+    BatchShotPredictionResponse,
+    ShotPredictionRequest,
+    ShotPredictionResponse,
+)
 
 
 def get_model_service(request: Request) -> ShotModelService:
@@ -37,6 +42,22 @@ def create_app(*, model_service: ShotModelService | None = None) -> FastAPI:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/predict/shots", response_model=BatchShotPredictionResponse)
+    def predict_shots(
+        body: BatchShotPredictionRequest,
+        service: Annotated[ShotModelService, Depends(get_model_service)],
+    ) -> BatchShotPredictionResponse:
+        shots = [(shot.features, shot.shot_value) for shot in body.shots]
+        try:
+            predictions = service.predict_shots(shots)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except KeyError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return BatchShotPredictionResponse(predictions=predictions)
 
     return app
 

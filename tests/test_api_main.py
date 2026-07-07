@@ -27,6 +27,14 @@ def _loaded_model_service(*, make_probability: float = 0.40) -> ShotModelService
     return ShotModelService(model=model, model_name=REGISTERED_MODEL_NAME)
 
 
+def _shot_request(*, shot_value: int = 3) -> dict[str, object]:
+    return {"features": _feature_payload(shot_value=shot_value), "shot_value": shot_value}
+
+
+def _batch_request(*shots: dict[str, object]) -> dict[str, list[dict[str, object]]]:
+    return {"shots": list(shots)}
+
+
 @pytest.fixture
 def client() -> TestClient:
     return TestClient(create_app(model_service=_loaded_model_service()))
@@ -98,5 +106,79 @@ def test_predict_shot_returns_422_for_invalid_shot_value(client: TestClient) -> 
         "/predict/shot",
         json={"features": _feature_payload(shot_value=3), "shot_value": 1},
     )
+
+    assert response.status_code == 422
+
+
+def test_predict_shots_returns_one_prediction_per_input_shot(client: TestClient) -> None:
+    response = client.post(
+        "/predict/shots",
+        json=_batch_request(_shot_request(shot_value=2), _shot_request(shot_value=3)),
+    )
+
+    assert response.status_code == 200
+    predictions = response.json()["predictions"]
+    assert len(predictions) == 2
+    assert predictions[0]["expected_shot_value"] == pytest.approx(0.80)
+    assert predictions[1]["expected_shot_value"] == pytest.approx(1.20)
+
+
+def test_predict_shots_preserves_input_order() -> None:
+    model = MagicMock()
+    model.predict_proba.side_effect = [
+        np.array([[0.70, 0.30]]),
+        np.array([[0.50, 0.50]]),
+        np.array([[0.10, 0.90]]),
+    ]
+    service = ShotModelService(model=model, model_name=REGISTERED_MODEL_NAME)
+    client = TestClient(create_app(model_service=service))
+
+    response = client.post(
+        "/predict/shots",
+        json=_batch_request(
+            _shot_request(shot_value=2),
+            _shot_request(shot_value=3),
+            _shot_request(shot_value=3),
+        ),
+    )
+
+    assert response.status_code == 200
+    predictions = response.json()["predictions"]
+    assert [item["predicted_make_probability"] for item in predictions] == pytest.approx(
+        [0.30, 0.50, 0.90]
+    )
+
+
+def test_predict_shots_returns_503_when_model_not_loaded() -> None:
+    client = TestClient(create_app(model_service=ShotModelService()))
+
+    response = client.post(
+        "/predict/shots",
+        json=_batch_request(_shot_request(shot_value=2)),
+    )
+
+    assert response.status_code == 503
+    assert "not loaded" in response.json()["detail"].lower()
+
+
+def test_predict_shots_returns_422_for_missing_features(client: TestClient) -> None:
+    response = client.post(
+        "/predict/shots",
+        json=_batch_request({"features": {"shot_distance": 12.0}, "shot_value": 2}),
+    )
+
+    assert response.status_code == 422
+    assert "Missing feature columns" in response.json()["detail"]
+
+
+def test_predict_shots_rejects_empty_shot_list(client: TestClient) -> None:
+    response = client.post("/predict/shots", json={"shots": []})
+
+    assert response.status_code == 422
+
+
+def test_predict_shots_rejects_over_max_batch_size(client: TestClient) -> None:
+    shots = [_shot_request(shot_value=2) for _ in range(501)]
+    response = client.post("/predict/shots", json={"shots": shots})
 
     assert response.status_code == 422
