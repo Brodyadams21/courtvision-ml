@@ -24,6 +24,41 @@ uvicorn courtvision.api.main:app --reload
 
 Start MLflow first if you need to load the registered model (see `scripts/start_mlflow.ps1`).
 
+## Model loading modes
+
+The API supports two model-loading behaviors, controlled by environment variables read at import time via `create_app_from_env()`.
+
+### Lazy mode (default)
+
+The app starts without calling MLflow. Prediction endpoints return **503** until a model is loaded elsewhere. This is the default and is useful for schema checks, OpenAPI docs, and lightweight local boot testing.
+
+```powershell
+$env:PYTHONPATH = "src"
+$env:MLFLOW_TRACKING_URI = "http://127.0.0.1:5000"
+uvicorn courtvision.api.main:app --reload
+```
+
+### Startup mode (fail-fast)
+
+Set `COURTVISION_API_LOAD_MODEL_ON_STARTUP=true` to load the registered MLflow model during app creation. If loading fails (MLflow unreachable, alias missing, etc.), the process raises `RuntimeError` and exits instead of serving **503** on every prediction.
+
+```powershell
+$env:PYTHONPATH = "src"
+$env:MLFLOW_TRACKING_URI = "http://127.0.0.1:5000"
+$env:COURTVISION_API_LOAD_MODEL_ON_STARTUP = "true"
+$env:COURTVISION_API_MODEL_ALIAS = "Candidate"
+uvicorn courtvision.api.main:app --reload
+```
+
+Optional: override the MLflow alias with `COURTVISION_API_MODEL_ALIAS` (default `Candidate`).
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `COURTVISION_API_LOAD_MODEL_ON_STARTUP` | `false` | Load the registered model when the app is created |
+| `COURTVISION_API_MODEL_ALIAS` | `Candidate` | MLflow model alias to load in startup mode |
+
+Tests inject a fake `ShotModelService` via `create_app(model_service=...)` and never call MLflow, regardless of startup flags.
+
 ## Example single-shot request
 
 Send every column in `FEATURE_COLUMNS` (`src/courtvision/models/common.py`) in `features`. The top-level `shot_value` must be `2` or `3` (it is also included in the feature dict as `shot_value`).
@@ -131,7 +166,7 @@ Unit tests inject a fake `ShotModelService` via `create_app(model_service=...)` 
 
 | Symptom | Likely cause | What to do |
 |---------|--------------|------------|
-| `503` — model not loaded | No Candidate model in MLflow or service not wired at startup | Confirm MLflow is running, a Candidate model is registered, and startup loading is configured (when implemented) |
+| `503` — model not loaded | No Candidate model in MLflow or lazy mode without manual load | Set `COURTVISION_API_LOAD_MODEL_ON_STARTUP=true` and confirm MLflow has the alias, or inject a loaded service in tests |
 | `422` — missing feature columns | Request `features` omit required model columns | Send the full feature set defined in `FEATURE_COLUMNS` (see `src/courtvision/models/common.py`) |
 | `422` — validation error on batch | Empty `shots` list or more than 500 items | Send between 1 and 500 shot requests |
 | Connection refused on port 5000 | MLflow tracking server not running | Run `scripts/start_mlflow.ps1` or set `MLFLOW_TRACKING_URI` to your tracking backend |

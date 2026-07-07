@@ -22,7 +22,7 @@ Phase 9 cloud execution is still **blocked/incomplete**: managed SageMaker train
 | 7 | PyTorch and spatial/sequence modeling | Complete, exceeds plan | Tabular/spatial MLPs plus GRU v3 with prior-event sequences, pressure features, inference bundle, tests, and report |
 | 8 | Expected shot value and player evaluation | Complete | GRU scoring, ESV/actual/above-expected calculations, player/team/zone/trend summaries, and basketball insights |
 | 9 | Cloud-assisted training | In progress / blocked | Config-driven local runner, Docker image, Linux lock, MLflow wiring, S3 bucket setup, and processed feature upload complete; managed SageMaker training, reproducible pipeline/dry-run documentation, and cloud registry verification remain |
-| 10 | FastAPI inference service | Partial / local complete | `courtvision.api` has `/health`, `/predict/shot`, and `/predict/shots`, Pydantic schemas, `ShotModelService`, and tests; startup model loading, request/response logging, Docker/API image, and production deployment docs remain |
+| 10 | FastAPI inference service | Partial / local complete | `courtvision.api` has `/health`, `/predict/shot`, and `/predict/shots`, Pydantic schemas, `ShotModelService`, configurable lazy/startup model loading, and tests; request/response logging, Docker/API image, and production deployment docs remain |
 | 11 | Streamlit dashboard | Complete local dashboard | Six-tab Streamlit dashboard, MLflow Candidate scoring, model diagnostics, Shot Edge Explorer, Edge Backtest, CSV exports, and `docs/dashboard.md` |
 | 12 | Monitoring and retraining | Not started | Monitoring modules are empty; drift, segment calibration, reports, triggers, and dashboard integration remain |
 | 13 | Final documentation and portfolio polish | In progress | README, `docs/dashboard.md`, `reports/dashboard_summary.md`, model reports, model card, architecture, training guide, and layout are present; demo media and final presentation/resume material remain |
@@ -47,12 +47,12 @@ Phase 9 should not be marked complete until all of the following are true:
 
 - `/health`, `/predict/shot`, and `/predict/shots` endpoints with Pydantic request/response schemas
 - Single-shot and batch prediction endpoints
+- Configurable lazy/startup model loading behavior
 - `ShotModelService` wrapping the registered Candidate model
 - Unit tests for health and prediction paths (`tests/test_api_main.py`)
 
 **Hardening (open):**
 
-- Explicit startup model loading behavior (fail fast vs. lazy load)
 - Request/response logging
 - Docker/API image
 - Production deployment documentation

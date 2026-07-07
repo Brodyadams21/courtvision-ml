@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -182,3 +182,43 @@ def test_predict_shots_rejects_over_max_batch_size(client: TestClient) -> None:
     response = client.post("/predict/shots", json={"shots": shots})
 
     assert response.status_code == 422
+
+
+@patch.object(ShotModelService, "load_from_mlflow")
+def test_create_app_lazy_mode_does_not_load_model(load_from_mlflow: MagicMock) -> None:
+    create_app(load_model_on_startup=False)
+
+    load_from_mlflow.assert_not_called()
+
+
+@patch.object(ShotModelService, "load_from_mlflow")
+def test_create_app_startup_mode_loads_model(load_from_mlflow: MagicMock) -> None:
+    create_app(load_model_on_startup=True)
+
+    load_from_mlflow.assert_called_once_with(alias="Candidate")
+
+
+@patch.object(ShotModelService, "load_from_mlflow")
+def test_create_app_startup_mode_passes_model_alias(load_from_mlflow: MagicMock) -> None:
+    create_app(load_model_on_startup=True, model_alias="Champion")
+
+    load_from_mlflow.assert_called_once_with(alias="Champion")
+
+
+@patch.object(ShotModelService, "load_from_mlflow", side_effect=RuntimeError("mlflow down"))
+def test_create_app_startup_mode_raises_when_loading_fails(load_from_mlflow: MagicMock) -> None:
+    with pytest.raises(RuntimeError, match="Failed to load MLflow model alias 'Candidate'"):
+        create_app(load_model_on_startup=True)
+
+    load_from_mlflow.assert_called_once_with(alias="Candidate")
+
+
+@patch.object(ShotModelService, "load_from_mlflow")
+def test_create_app_with_injected_service_skips_startup_loading(
+    load_from_mlflow: MagicMock,
+) -> None:
+    fake_service = MagicMock(spec=ShotModelService)
+
+    create_app(model_service=fake_service, load_model_on_startup=True)
+
+    load_from_mlflow.assert_not_called()

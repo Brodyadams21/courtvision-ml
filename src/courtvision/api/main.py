@@ -13,6 +13,7 @@ from courtvision.api.schemas import (
     ShotPredictionRequest,
     ShotPredictionResponse,
 )
+from courtvision.api.settings import load_api_settings
 
 
 def get_model_service(request: Request) -> ShotModelService:
@@ -20,10 +21,27 @@ def get_model_service(request: Request) -> ShotModelService:
     return request.app.state.model_service
 
 
-def create_app(*, model_service: ShotModelService | None = None) -> FastAPI:
+def create_app(
+    *,
+    model_service: ShotModelService | None = None,
+    load_model_on_startup: bool = False,
+    model_alias: str = "Candidate",
+) -> FastAPI:
     """Build a FastAPI app; inject ``model_service`` for tests or custom wiring."""
+    if model_service is None:
+        service = ShotModelService()
+        if load_model_on_startup:
+            try:
+                service.load_from_mlflow(alias=model_alias)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Failed to load MLflow model alias {model_alias!r} on startup: {exc}"
+                ) from exc
+    else:
+        service = model_service
+
     app = FastAPI(title="CourtVision ML API", version="0.1.0")
-    app.state.model_service = model_service or ShotModelService()
+    app.state.model_service = service
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -62,4 +80,12 @@ def create_app(*, model_service: ShotModelService | None = None) -> FastAPI:
     return app
 
 
-app = create_app()
+def create_app_from_env() -> FastAPI:
+    settings = load_api_settings()
+    return create_app(
+        load_model_on_startup=settings.load_model_on_startup,
+        model_alias=settings.model_alias,
+    )
+
+
+app = create_app_from_env()
