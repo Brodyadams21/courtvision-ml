@@ -203,6 +203,8 @@ docker compose up --build api
 
 On Windows and macOS, `host.docker.internal` reaches MLflow running on the host (for example via `scripts/start_mlflow.ps1` on port 5000).
 
+For production-oriented deployment guidance, see [`docs/api_deployment.md`](api_deployment.md).
+
 ## Troubleshooting
 
 | Symptom | Likely cause | What to do |

@@ -47,7 +47,7 @@ flowchart LR
 | Data, validation, features, baseline, candidate, deep learning, and basketball evaluation | Complete |
 | Local and Docker training path | Complete |
 | AWS/SageMaker training path | Partial cloud setup; S3 bucket and processed feature upload completed, managed SageMaker training blocked by quota/capacity, cloud MLflow/registry verification remains |
-| FastAPI serving | Basic local inference endpoints complete (`/health`, `/predict/shot`, `/predict/shots`; see `docs/api.md`) |
+| FastAPI serving | Containerized for local serving and documented for future managed deployment ([`docs/api.md`](docs/api.md), [`docs/api_deployment.md`](docs/api_deployment.md)) |
 | Streamlit analytics dashboard | Complete local dashboard (six tabs, CSV export) |
 | Monitoring | Planned |
 | Final documentation and portfolio polish | In progress |
@@ -214,6 +214,8 @@ $env:PYTHONPATH = "src"
 
 See [`docs/training.md`](docs/training.md) for local training, MLflow logging, local pipeline runs, and Dockerized training.
 
+**API serving:** [`docs/api.md`](docs/api.md) (local usage) · [`docs/api_deployment.md`](docs/api_deployment.md) (container deployment guide; no managed deployment performed yet)
+
 Direct dependencies live in `requirements.in`; the pinned local lock is `requirements.txt`. See [Dependency management](docs/training.md#dependency-management) in the training guide.
 
 Copy `.env.example` → `.env`. Start PostgreSQL and apply schema:
@@ -285,7 +287,7 @@ pytest
 
 | Area | Planned |
 |------|---------|
-| **Serving** | Harden FastAPI for production (startup model load, batch endpoint, GRU bundle with sequence assembly); no cloud deployment yet |
+| **Serving** | GRU bundle with sequence assembly for API; managed cloud deployment when Phase 9 unblocks |
 | **Dashboard polish** | Player/team evaluation pages, saved screenshots, richer model comparison (LightGBM vs. GRU), optional deployed demo |
 | **Calibration** | Platt / isotonic review by shot type and zone; compare GRU vs. LightGBM bins |
 | **Monitoring** | Data drift, prediction drift, calibration tracking, retraining triggers |

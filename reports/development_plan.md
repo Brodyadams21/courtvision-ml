@@ -1,12 +1,12 @@
 # CourtVision ML - Development Plan Status
 
-Last reviewed: 2026-07-06
+Last reviewed: 2026-07-07
 
 This is the repository-facing status snapshot for the 13-phase CourtVision ML development plan. It records what is implemented on `main`; it does not mark placeholder files as completed work.
 
 ## Current position
 
-The project is **through Phase 8**, has **partial Phase 9 cloud infrastructure**, has a **basic Phase 10 local FastAPI inference service**, and has a **complete local Phase 11 Streamlit analytics dashboard**. **Phase 12 monitoring** remains not started. **Phase 13 documentation and portfolio polish** are in progress.
+The project is **through Phase 8**, has **partial Phase 9 cloud infrastructure**, has **complete Phase 10 local/containerized FastAPI inference service**, and has a **complete local Phase 11 Streamlit analytics dashboard**. **Phase 12 monitoring** remains not started. **Phase 13 documentation and portfolio polish** are in progress.
 
 Phase 9 cloud execution is still **blocked/incomplete**: managed SageMaker training has not successfully run (quota/capacity limits), and reproducible pipeline/dry-run documentation plus cloud registry verification remain open. S3 bucket setup and processed feature upload are already complete.
 
@@ -22,7 +22,7 @@ Phase 9 cloud execution is still **blocked/incomplete**: managed SageMaker train
 | 7 | PyTorch and spatial/sequence modeling | Complete, exceeds plan | Tabular/spatial MLPs plus GRU v3 with prior-event sequences, pressure features, inference bundle, tests, and report |
 | 8 | Expected shot value and player evaluation | Complete | GRU scoring, ESV/actual/above-expected calculations, player/team/zone/trend summaries, and basketball insights |
 | 9 | Cloud-assisted training | In progress / blocked | Config-driven local runner, Docker image, Linux lock, MLflow wiring, S3 bucket setup, and processed feature upload complete; managed SageMaker training, reproducible pipeline/dry-run documentation, and cloud registry verification remain |
-| 10 | FastAPI inference service | Partial / local complete | `courtvision.api` has `/health`, `/predict/shot`, and `/predict/shots`, Pydantic schemas, `ShotModelService`, configurable lazy/startup model loading, request ID and prediction metadata logging, `Dockerfile.api`, and Docker Compose API service; production deployment docs remain |
+| 10 | FastAPI inference service | Complete local/containerized API serving; managed production deployment not performed | `courtvision.api` endpoints, `ShotModelService`, lazy/startup loading, request logging, `Dockerfile.api`, Docker Compose, `docs/api.md`, `docs/api_deployment.md`, and tests |
 | 11 | Streamlit dashboard | Complete local dashboard | Six-tab Streamlit dashboard, MLflow Candidate scoring, model diagnostics, Shot Edge Explorer, Edge Backtest, CSV exports, and `docs/dashboard.md` |
 | 12 | Monitoring and retraining | Not started | Monitoring modules are empty; drift, segment calibration, reports, triggers, and dashboard integration remain |
 | 13 | Final documentation and portfolio polish | In progress | README, `docs/dashboard.md`, `reports/dashboard_summary.md`, model reports, model card, architecture, training guide, and layout are present; demo media and final presentation/resume material remain |
@@ -43,19 +43,22 @@ Phase 9 should not be marked complete until all of the following are true:
 
 ## Phase 10 completion criteria
 
-**Local (done):**
+**Local / containerized (done):**
 
 - `/health`, `/predict/shot`, and `/predict/shots` endpoints with Pydantic request/response schemas
 - Single-shot and batch prediction endpoints
 - Configurable lazy/startup model loading behavior
 - Request ID, latency, and prediction metadata logging without feature payloads
 - `Dockerfile.api` and Docker Compose API service for local containerized serving
+- Production-oriented deployment guide documenting container runtime, model loading, artifact access, logging, security, and readiness gaps (`docs/api_deployment.md`)
 - `ShotModelService` wrapping the registered Candidate model
-- Unit tests for health and prediction paths (`tests/test_api_main.py`)
+- Unit tests for health, prediction, settings, Docker artifacts, and API docs
 
-**Hardening (open):**
+**Managed production (not done):**
 
-- Production deployment documentation
+- No deployment to ECS, Cloud Run, Kubernetes, or similar has been executed
+- Remote MLflow artifact access from a live container not verified in cloud
+- Platform secrets, HTTPS, auth, and rate limiting not implemented
 
 ## Phase 11 completion criteria
 
@@ -76,9 +79,9 @@ Phase 9 should not be marked complete until all of the following are true:
 ## Recommended order
 
 1. Keep Phase 9 cloud work paused until quota/capacity allows a credible managed training run or documented dry run.
-2. Harden Phase 10 FastAPI serving around the LightGBM Candidate.
-3. Add Phase 12 monitoring and promotion gates.
-4. Add dashboard polish: player/team pages, screenshots, model comparison.
+2. Add Phase 12 monitoring and promotion gates.
+3. Add dashboard polish: player/team pages, screenshots, model comparison.
+4. When cloud path unblocks, deploy API to managed hosting with S3-backed MLflow artifacts (see `docs/api_deployment.md`).
 5. Finish Phase 13 with demo media, resume bullets, and a clean reproduction walkthrough.
 
 ## Quality gates
