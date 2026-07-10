@@ -2,7 +2,7 @@
 
 ## Current status
 
-Phase 9 cloud-assisted training is **not yet executed**. The SageMaker launcher (`pipelines/sagemaker_train.py`) is aligned with the current local LightGBM entrypoint and the approved instance type. Use dry run first; submit only after reviewing the printed job configuration.
+Phase 9 cloud-assisted training has had one managed run that reached container execution but failed on the processed-data path. The SageMaker launcher (`pipelines/sagemaker_train.py`) now passes `--processed-dir /opt/ml/input/data/processed/features` so training reads the SageMaker input channel. Use dry run first; submit only after reviewing the printed job configuration.
 
 ## Approved instance type
 
@@ -14,16 +14,20 @@ Phase 9 cloud-assisted training is **not yet executed**. The SageMaker launcher 
 | --- | --- |
 | Default instance type | `ml.c5.xlarge` |
 | Training module (container command) | `courtvision.models.train_lgbm` |
-| Container args | `--mode default --no-mlflow` |
+| Container args | `--processed-dir /opt/ml/input/data/processed/features --mode default --no-mlflow` |
 | Default behavior | Dry run (print job JSON only) |
 
 The container command is:
 
 ```text
-python -m courtvision.models.train_lgbm --mode default --no-mlflow
+python -m courtvision.models.train_lgbm --processed-dir /opt/ml/input/data/processed/features --mode default --no-mlflow
 ```
 
 MLflow is disabled in the default cloud run until cloud MLflow tracking and artifact storage are fully configured.
+
+## First failure note
+
+The first managed training attempt reached container execution but failed because the training script used the local `/app` processed-features default instead of the SageMaker input channel at `/opt/ml/input/data/processed/features`.
 
 ## Commands
 

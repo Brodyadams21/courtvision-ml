@@ -115,6 +115,8 @@ def test_build_job_from_config_uses_sagemaker_container_command(
     entrypoint = request["AlgorithmSpecification"]["ContainerEntrypoint"]
     assert entrypoint == train.CONTAINER_COMMAND
     assert "courtvision.models.train_lgbm" in entrypoint
+    assert "--processed-dir" in entrypoint
+    assert "/opt/ml/input/data/processed/features" in entrypoint
     assert "--mode" in entrypoint
     assert "default" in entrypoint
     assert "--no-mlflow" in entrypoint
