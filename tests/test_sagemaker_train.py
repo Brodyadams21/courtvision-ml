@@ -52,7 +52,7 @@ def _base_args(**overrides: object) -> argparse.Namespace:
         "image_uri": None,
         "role_arn": None,
         "job_name": None,
-        "instance_type": "ml.m5.large",
+        "instance_type": "ml.c5.xlarge",
         "max_runtime_seconds": 1800,
         "execute": False,
     }
@@ -97,7 +97,7 @@ def test_build_job_from_config_uses_processed_input_channel(
     assert channel["ChannelName"] == "processed"
     assert channel["DataSource"]["S3DataSource"]["S3Uri"].endswith("/processed/")
     assert request["OutputDataConfig"]["S3OutputPath"].endswith("/sagemaker-output/")
-    assert request["ResourceConfig"]["InstanceType"] == "ml.m5.large"
+    assert request["ResourceConfig"]["InstanceType"] == "ml.c5.xlarge"
     assert request["ResourceConfig"]["InstanceCount"] == 1
     assert request["StoppingCondition"]["MaxRuntimeInSeconds"] == 1800
 
@@ -114,8 +114,13 @@ def test_build_job_from_config_uses_sagemaker_container_command(
 
     entrypoint = request["AlgorithmSpecification"]["ContainerEntrypoint"]
     assert entrypoint == train.CONTAINER_COMMAND
-    assert "configs/sagemaker.yaml" in entrypoint
-    assert "configs/local.yaml" not in entrypoint
+    assert "courtvision.models.train_lgbm" in entrypoint
+    assert "--mode" in entrypoint
+    assert "default" in entrypoint
+    assert "--no-mlflow" in entrypoint
+    assert "courtvision.models.train" not in entrypoint
+    assert "--config" not in entrypoint
+    assert "--model" not in entrypoint
 
 
 def test_build_job_from_config_builds_role_arn_from_account(
@@ -184,6 +189,20 @@ def test_run_from_args_execute_submits_job(
     captured = capsys.readouterr().out
     assert captured.strip() == "Submitted SageMaker training job: courtvision-lightgbm-default-test"
     assert len(submit_calls) == 1
+
+
+def test_build_job_from_config_instance_type_override(
+    aws_project_config: ProjectConfig,
+) -> None:
+    request = train.build_job_from_config(
+        aws_project_config,
+        bucket="courtvision-bucket",
+        account_id="123456789012",
+        instance_type="ml.m5.xlarge",
+        timestamp=datetime(2026, 6, 21, 14, 30, tzinfo=UTC),
+    )
+
+    assert request["ResourceConfig"]["InstanceType"] == "ml.m5.xlarge"
 
 
 def test_resolve_account_id_requires_value(monkeypatch: pytest.MonkeyPatch) -> None:
