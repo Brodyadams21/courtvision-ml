@@ -117,6 +117,8 @@ def test_build_job_from_config_uses_sagemaker_container_command(
     assert "courtvision.models.train_lgbm" in entrypoint
     assert "--processed-dir" in entrypoint
     assert "/opt/ml/input/data/processed/features" in entrypoint
+    assert "--model-output-dir" in entrypoint
+    assert "/opt/ml/model" in entrypoint
     assert "--mode" in entrypoint
     assert "default" in entrypoint
     assert "--no-mlflow" in entrypoint

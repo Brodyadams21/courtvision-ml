@@ -419,10 +419,36 @@ def print_metrics_block(title: str, metrics: dict[str, float]) -> None:
     print(f"  accuracy: {metrics['accuracy']:.4f}")
 
 
+def save_standalone_model_artifacts(
+    model: LGBMClassifier,
+    metrics: dict[str, float],
+    output_dir: Path,
+) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    import joblib
+
+    joblib.dump(model, output_dir / "model.joblib")
+
+    (output_dir / "metrics.json").write_text(
+        json.dumps(metrics, indent=2),
+        encoding="utf-8",
+    )
+
+    (output_dir / "feature_columns.json").write_text(
+        json.dumps(
+            {"target": "shot_made_flag", "features": FEATURE_COLUMNS},
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
 def run_default(
     season: str,
     *,
     processed_dir: Path | None = None,
+    model_output_dir: Path | None = None,
     log_mlflow: bool = True,
     mlflow_tracking_uri: str | None = None,
 ) -> dict[str, float]:
@@ -446,6 +472,9 @@ def run_default(
     model, test_proba = train_and_predict_proba(x_train, y_train, x_test)
     test_metrics = evaluate_classification_metrics(y_test, test_proba)
     print_metrics_block("Test metrics", test_metrics)
+
+    if model_output_dir is not None:
+        save_standalone_model_artifacts(model, test_metrics, model_output_dir)
 
     if log_mlflow:
         configure_mlflow(tracking_uri=mlflow_tracking_uri)
@@ -647,6 +676,15 @@ def parse_args() -> argparse.Namespace:
         help=f"Directory with train/test Parquet (default: {DEFAULT_PROCESSED_FEATURES_DIR})",
     )
     parser.add_argument(
+        "--model-output-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Optional directory to write standalone model artifacts, "
+            "for example /opt/ml/model on SageMaker"
+        ),
+    )
+    parser.add_argument(
         "--mode",
         choices=("default", "search"),
         default="default",
@@ -699,6 +737,7 @@ def main() -> None:
     run_default(
         args.season,
         processed_dir=args.processed_dir,
+        model_output_dir=args.model_output_dir,
         log_mlflow=log_mlflow,
     )
 

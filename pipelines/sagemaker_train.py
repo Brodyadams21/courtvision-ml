@@ -35,6 +35,8 @@ CONTAINER_COMMAND: list[str] = [
     "courtvision.models.train_lgbm",
     "--processed-dir",
     "/opt/ml/input/data/processed/features",
+    "--model-output-dir",
+    "/opt/ml/model",
     "--mode",
     "default",
     "--no-mlflow",
