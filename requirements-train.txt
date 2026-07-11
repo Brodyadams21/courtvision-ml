@@ -1,0 +1,9 @@
+joblib
+lightgbm
+matplotlib
+mlflow
+numpy
+pandas
+pyarrow
+python-dotenv
+scikit-learn
