@@ -21,7 +21,7 @@ from courtvision.utils.storage import join_s3_uri, s3_uri  # noqa: E402
 
 INPUT_CHANNEL_NAME = "processed"
 DEFAULT_ECR_REPO = "courtvision-train"
-DEFAULT_ECR_TAG = "phase9-sagemaker-v1"
+DEFAULT_ECR_TAG = "phase9-sagemaker-v2"
 DEFAULT_ROLE_NAME = "CourtVisionSageMakerExecutionRole"
 DEFAULT_INSTANCE_TYPE = "ml.c5.xlarge"
 DEFAULT_MAX_RUNTIME_SECONDS = 1800

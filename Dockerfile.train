@@ -17,8 +17,8 @@ COPY src/ src/
 ENV PYTHONPATH=/app/src \
     PYTHONUNBUFFERED=1
 
-CMD ["python", "-m", "courtvision.models.train", \
-     "--config", "configs/local.yaml", \
-     "--model", "lightgbm", \
+CMD ["python", "-m", "courtvision.models.train_lgbm", \
+     "--processed-dir", "/opt/ml/input/data/processed/features", \
+     "--model-output-dir", "/opt/ml/model", \
      "--mode", "default", \
      "--no-mlflow"]

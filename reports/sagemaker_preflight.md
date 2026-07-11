@@ -14,13 +14,13 @@ Phase 9 cloud-assisted training has had one managed run that reached container e
 | --- | --- |
 | Default instance type | `ml.c5.xlarge` |
 | Training module (container command) | `courtvision.models.train_lgbm` |
-| Container args | `--processed-dir /opt/ml/input/data/processed/features --mode default --no-mlflow` |
+| Container args | `--processed-dir /opt/ml/input/data/processed/features --model-output-dir /opt/ml/model --mode default --no-mlflow` |
 | Default behavior | Dry run (print job JSON only) |
 
 The container command is:
 
 ```text
-python -m courtvision.models.train_lgbm --processed-dir /opt/ml/input/data/processed/features --mode default --no-mlflow
+python -m courtvision.models.train_lgbm --processed-dir /opt/ml/input/data/processed/features --model-output-dir /opt/ml/model --mode default --no-mlflow
 ```
 
 MLflow is disabled in the default cloud run until cloud MLflow tracking and artifact storage are fully configured.
